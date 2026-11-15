@@ -1,0 +1,31 @@
+# cuculus-update
+
+> 独立的 Android 应用内自更新库（AAR，`dev.cuculus:cuculus-update:1.0.0`，包名 `dev.cuculus.update`，Apache-2.0）。从 GitHub Releases 读取最新发布、挑选 APK、断点续传下载（WorkManager 前台 + 通知）、经 FileProvider 交给系统安装器；消费者 App 无需声明任何权限 / 服务 / provider，全部由库 manifest 自动合并。Cuculus 工具系列的 `update` 成员（杜鹃巢寄生），命名刻意不绑定 Android / GitHub，为后续 KMP / Flutter 扩展留位。
+
+本仓库提供一份「完整知识库」，目标是让大模型只读一遍即可一步到位把本 SDK 接入任意 Android 项目。**接入前必读 `docs/09-llm-playbook.md`**（决策树 + 可直接复制的完整代码 + 验收清单）与 `docs/02-integration.md`（一页式接入）；改代码前先读 `AGENTS.md`。
+
+## Docs
+
+- [README.md](README.md): 面向人的快速开始、配置表、存储布局、清单合并说明、sample 与构建命令。
+- [AGENTS.md](AGENTS.md): 仓库 Agent 入口——项目定位、目录地图、构建/测试命令、必须遵守的不变量、提交规范、改代码前的阅读顺序。
+- [docs/README.md](docs/README.md): 完整知识库总目录、全局铁律、6 篇核心文档索引与按角色的推荐阅读路径。
+- [docs/01-architecture.md](docs/01-architecture.md): 架构与数据流——库内部怎么跑、为什么这样设计、能力边界与状态机。
+- [docs/02-integration.md](docs/02-integration.md): ★ 一页式接入——可直接复制粘贴跑起来的完整代码（Application 单例、检查、前台下载 + 进度 + 取消、安装、静默预下载 + 红点），每步附验收方式。
+- [docs/03-api-reference.md](docs/03-api-reference.md): API 参考——每个 public 类型的签名、参数、默认值、异常、协程/线程约束、状态流转；所有 internal 类型不可调用。
+- [docs/04-configuration.md](docs/04-configuration.md): 配置与版本编码——`UpdaterConfig` 每个字段、`scope` 隔离、`versionResolver` 选型、versionCode 单调规则。
+- [docs/05-release-contract.md](docs/05-release-contract.md): 发布契约与检查清单——App 维护者发布 Release 时必须遵守的 asset 命名、签名一致、多 asset 挑选等约定。
+- [docs/09-llm-playbook.md](docs/09-llm-playbook.md): ★ 大模型「一步到位」接入手册——决策树、完整可复制代码模板、明确禁止事项、验收清单、常见误判、最小改动/完整集成两条路径。
+
+## Optional
+
+- [docs/06-behavior-and-edge-cases.md](docs/06-behavior-and-edge-cases.md): 进阶——断点续传、脏记录清理、代理回退、通知权限、进程被杀恢复、多 scope、取消/重复点击/并发、R8、API 26→37 差异、磁盘不足、缓存被清理、文件名 sanitize；每条给出「现象/原因/SDK 的处理/接入方该怎么做」。
+- [docs/07-migration.md](docs/07-migration.md): 进阶——从 venera-native `data/update` 迁移到本 SDK 的完整映射表、分步流程、阶段约束（旧代码先不删）、`AboutViewModel` 改造示例、接入验证清单。
+- [docs/08-troubleshooting.md](docs/08-troubleshooting.md): 进阶——无更新/NoInstallableAsset、下载卡住、解析软件包失败、FileProvider authority 冲突、通知不显示、WorkManager 不启动、R8 崩溃、GitHub 403、tag/asset 解析失败、代理、版本回退；每条给检查命令/日志线索/修复方式。
+- [docs/10-design-rationale.md](docs/10-design-rationale.md): 进阶——设计缘由（整理自 venera-native 设计文档）：结论、六处项目耦合、AAR 构建缺口、目标设计、迁移路径、风险与明确不做的事。
+- [docs/11-testing-and-build.md](docs/11-testing-and-build.md): 进阶——环境要求、完整命令清单、manifest 合并验证、真机验证下载与安装、mavenLocal 接入演练、23 个单测逐项覆盖说明、CI 建议。
+
+## Notes
+
+- 正文使用简体中文；代码、标识符、命令、类名保持英文原样。
+- 文档与源码冲突时，**一律以 `updater/src/main/kotlin/dev/cuculus/update/*.kt` 为准**，禁止编造 API；所有 public 签名以 `docs/03-api-reference.md` 为准，`internal` 类型对消费者不可见。
+- `docs/README.md` 是知识库的权威索引；`01`–`05` 为基础篇、`06`–`11` 为进阶篇，文件名如上所列。`09` 因是大模型接入的核心速查入口而列入上面的 `## Docs`（优先阅读），编号上仍属于 `06`–`11` 进阶篇，两处口径不矛盾。
