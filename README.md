@@ -61,18 +61,28 @@ class MyApplication : Application() {
         updater = Updater.create(
             applicationContext,
             UpdaterConfig(
-                owner = "lwtor",
-                repository = "venera-native",
+                owner = "your-org",                     // GitHub owner that publishes YOUR app's APK
+                repository = "your-app",                // repository whose latest release carries YOUR APK
                 fileProviderAuthority = "$packageName.updater",
-                versionResolver = ReleaseVersionResolver.Or(
-                    ReleaseVersionResolver.AssetNameSuffix(),
-                    ReleaseVersionResolver.TagScheme(),
-                ),
+                // Default versionResolver = AssetNameSuffix(): name the asset
+                // your-app-v1.2.4-7.apk and it resolves to versionCode 7, which must be in the
+                // same number space as BuildConfig.VERSION_CODE of the installed app.
             ),
         )
     }
 }
 ```
+
+> **`repository` is the release source of the app being updated — your own app.** It is not the
+> SDK repository and not another app's repository. `check(installedVersionCode)` compares the
+> installed app's `versionCode` with the code decoded from *that* release's asset name, and the
+> asset it returns is the APK your app will install. Pointing at another app makes the comparison
+> meaningless and the install impossible (different applicationId/signature). See
+> [05-release-contract.md](docs/05-release-contract.md) for the exact naming rule.
+>
+> Also note the SDK reads GitHub's `/releases/latest`, which **excludes drafts and prereleases**.
+> A prerelease-only repository makes `check()` throw `ReleaseApiException(404, "no published release")`.
+> Publish the update as a normal release, or fork the API call if you need prerelease channels.
 
 > **Do not call `Updater.create()` in an Activity property initializer**, e.g.
 > `private val updater = Updater.create(this, ...)`. An Activity is not attached to a base Context
@@ -181,6 +191,15 @@ The demo uses a `NoActionBar` theme and draws its own title inside the scrolling
 pads the root view with `OnApplyWindowInsetsListener` for the status/navigation bars. On
 Android 15+ a `targetSdk 37` app is forced edge-to-edge, so a system ActionBar or an unpadded
 root would cover the top buttons. Keep that in mind if you copy the sample layout.
+
+**The demo updates itself.** `SampleApp` points at `lwtor/cuculus-update`, the repository that
+publishes this demo's own APKs; `check()` is called with this app's own
+`BuildConfig.VERSION_CODE`. An end-to-end run needs two builds: install the older one, publish a
+newer one as a **normal** release (not a prerelease), then 检查更新 → 下载 → 安装 upgrades the app
+in place. Release assets are named `cuculus-update-demo-v<name>-<versionCode>.apk`, e.g.
+`cuculus-update-demo-v1.2.4-7.apk` → versionCode `7`, so the default `AssetNameSuffix()` needs no
+custom resolver. Both builds share the debug keystore, so the system installer can replace the
+running app.
 
 ```bash
 sh gradlew :updater:testDebugUnitTest --console=plain   # 23 unit tests

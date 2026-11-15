@@ -188,8 +188,8 @@ class App : Application() {
         updater = Updater.create(
             context = this,
             config = UpdaterConfig(
-                owner = "lwtor",                                   // 你的 GitHub 用户/组织
-                repository = "venera-native",                      // 你的仓库名
+                owner = "your-org",                                // ★ 发布「本 App APK」的 GitHub owner / org
+                repository = "your-app",                           // ★ 发布「本 App APK」的仓库，不是 SDK 仓库、不是别的 App
                 fileProviderAuthority = "$packageName.updater",    // ★ 必须等于 ${applicationId}.updater
                 versionResolver = ReleaseVersionResolver.Or(        // 决策 A
                     ReleaseVersionResolver.AssetNameSuffix(),       // 资产名尾部数字优先
@@ -523,6 +523,8 @@ UpdaterConfig(
 16. **不要改 `updaterCacheDir()` 而不改 `updater_file_paths.xml`**，否则 FileProvider 暴露不到 APK（AGENTS.md 不变量 2）。
 17. **不要每次用到都 `new` 一个 `Updater`**。每个进程、每个 scope 应只有一个 `Updater` 单例（放 Application），以便 `WorkerHttp` 与 `status` 一致。
 18. **不要在 `Activity` 的属性初始化器里调用 `Updater.create(this, ...)`，也不要在那里求值 `"$packageName.updater"`**。Activity 构造时 base Context 尚未 attach，`getPackageName()` / `getApplicationContext()` 抛 NPE → **App 一启动就崩**，且在 `onCreate` 之前，日志栈顶落在 `<init>`。唯一正确位置是 `Application.onCreate()` 里创建单例（§2.3 `App.kt`），最晚 `Activity.onCreate()` 内用 `applicationContext`。这是本 SDK 最容易被大模型写错的一处；照抄 §2 模板即可避开。
+19. **不要把 `repository` 指向别的 App 的仓库或 SDK 自己的源码仓库**。`check(installedVersionCode)` 比较的是「已安装 App 的 versionCode」与「该 release 资产名解出的 code」，返回的 asset 就是要装进本 App 的 APK。指向别的 App 会让比较失去意义，且因 applicationId / 签名不同导致安装必然失败。`repository` 只能是**发布本 App APK** 的那个仓库。
+20. **不要把更新发成 prerelease 却指望 `check()` 能查到**。SDK 调 GitHub `/releases/latest`，该接口**排除 draft 与 prerelease**；只有 prerelease 的仓库会抛 `ReleaseApiException(404, "no published release")`。演示自更新时，云端「新版本」必须是普通 release（[05 篇](05-release-contract.md)、[08 §1](08-troubleshooting.md)）。
 
 ---
 
@@ -534,7 +536,7 @@ UpdaterConfig(
 | 2 | 合并清单 | app merged manifest 含 6 权限 + `SystemForegroundService`(dataSync) + `${applicationId}.updater` provider，且 **authority 唯一**；app 自身 manifest 无这些条目 | ☐ |
 | 3 | `fileProviderAuthority` 一致 | `UpdaterConfig.fileProviderAuthority == "$packageName.updater"` 且 == manifest 的 `${applicationId}.updater` | ☐ |
 | 4 | `installedVersionCode` 正确 | 传入的是 `BuildConfig.VERSION_CODE.toLong()` / `PackageInfoCompat`，与 `adb shell dumpsys package <pkg> \| grep versionCode` 一致 | ☐ |
-| 5 | 红点 | 造一个 `versionCode` 更大的 release，启动 App → `status` 变 `UpdateAvailable`/`Downloaded` → 角标出现 | ☐ |
+| 5 | 红点 | 造一个 `versionCode` 更大的 **普通 release（非 prerelease）**，启动 App → `status` 变 `UpdateAvailable`/`Downloaded` → 角标出现 | ☐ |
 | 6 | 静默预下载 | 预取成功后 `Downloaded.apkFile` 存在且头 4 字节为 `50 4b 03 04`；杀进程重进 `cachedApk()` 命中、不重复下载 | ☐ |
 | 7 | 手动检查 | 点「检查更新」得到 `Available(release, asset, versionCode)`；无更新得 `UpToDate`；无 APK 得 `NoInstallableAsset` | ☐ |
 | 8 | 点击更新不重复下载 | 已 `Downloaded`/`cachedApk()` 命中时直接 `install()`，不二次下载；无缓存时只启动一个前台 worker（`adb shell dumpsys jobscheduler`） | ☐ |
@@ -562,6 +564,8 @@ UpdaterConfig(
 | 「`POST_NOTIFICATIONS` 被拒绝 → 下载失败」 | 下载照常完成，只是通知隐藏；不要因此禁用下载（[06 §6](06-behavior-and-edge-cases.md)）。 |
 | 「`UpToDate` 里没有 asset」 | 有：`UpToDate(release, asset)`；可用于调试时强制重下同版本 APK。 |
 | 「`versionName`（`1.9.3`）可以当 `installedVersionCode`」 | 必须传 `Long` 型 `versionCode`；用 `BuildConfig.VERSION_CODE.toLong()`。 |
+| 「`repository` 填个有 release 的仓库就行，比如 SDK 仓库或参考项目」 | 必须填**发布本 App APK** 的仓库。填别的 App：比较的是别人的 versionCode，下载的是别人的 APK，装不上（applicationId / 签名不同）。本仓库 `:sample` 指向 `lwtor/cuculus-update` 是因为 demo 的 APK 就发在这里。 |
+| 「prerelease 也算 latest release」 | GitHub `/releases/latest` **排除 draft 与 prerelease**；只有 prerelease 时 `check()` 抛 404 `no published release`。 |
 | 「需要自己在 manifest 写权限 / provider」 | 库全部合并；app manifest 只写 `<application android:name=".App">`。 |
 | 「`REQUEST_INSTALL_PACKAGES` 要运行时申请」 | normal 权限，无运行时弹窗；用户仍逐次确认安装。 |
 | 「相等版本也应触发更新」 | `isUpdate` 要求**严格大于**；相等 → `UpToDate`（[08 §12](08-troubleshooting.md)）。 |

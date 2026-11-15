@@ -128,8 +128,8 @@ class App : Application() {
         updater = Updater.create(
             context = this,                        // 内部取 applicationContext，可长期持有，不会泄漏 Activity
             config = UpdaterConfig(
-                owner = "lwtor",                   // 占位：替换为你发布仓库的 GitHub owner / org
-                repository = "venera-native",      // 占位：替换为仓库名（其 latest release 是更新源）
+                owner = "your-org",                // ★ 占位：换成发布「本 App APK」的 GitHub owner / org
+                repository = "your-app",           // ★ 占位：换成发布「本 App APK」的仓库；不是 SDK 仓库、不是别的 App
                 fileProviderAuthority = "$packageName.updater", // 必须等于 ${applicationId}.updater
                 versionResolver = ReleaseVersionResolver.Or(
                     ReleaseVersionResolver.AssetNameSuffix(),    // 首选：从 asset 名尾部读 versionCode

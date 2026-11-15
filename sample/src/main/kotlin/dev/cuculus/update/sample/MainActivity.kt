@@ -1,6 +1,8 @@
 package dev.cuculus.update.sample
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -50,6 +52,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         applySystemBarInsets(findViewById(R.id.root_scroll))
+        requestNotificationPermissionIfNeeded()
 
         val versionText: TextView = findViewById(R.id.version_text)
         statusText = findViewById(R.id.status_text)
@@ -123,6 +126,19 @@ class MainActivity : Activity() {
             insets
         }
         root.requestApplyInsets()
+    }
+
+    /**
+     * The foreground download posts a progress notification. Granting POST_NOTIFICATIONS is the
+     * app's job (the SDK declares the permission but cannot request it at runtime), so a demo that
+     * really downloads and installs its own update has to ask for it on API 33+.
+     */
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS)
+        }
     }
 
     private fun checkForUpdate() {
@@ -230,5 +246,9 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()
+    }
+
+    private companion object {
+        const val REQUEST_NOTIFICATIONS = 1
     }
 }

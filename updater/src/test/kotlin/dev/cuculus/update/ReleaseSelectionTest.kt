@@ -48,6 +48,13 @@ class ReleaseSelectionTest {
         assertEquals(1_006_000L, assetNameResolver.versionCodeOf("", "venera-native-v1.6.0-1006000.apk"))
         assertEquals(9L, assetNameResolver.versionCodeOf("", "app-9.apk"))
         assertEquals(9L, assetNameResolver.versionCodeOf("", "app-9.APK"))
+        // :sample publishes its OWN APKs under this name and passes its own BuildConfig.VERSION_CODE
+        // to check(). The tag "demo-v1.2.4" is not TagScheme-parseable, which is fine because
+        // AssetNameSuffix ignores the tag. Locks "install code 6 -> check -> find code 7 -> install".
+        assertEquals(
+            7L,
+            assetNameResolver.versionCodeOf("demo-v1.2.4", "cuculus-update-demo-v1.2.4-7.apk"),
+        )
     }
 
     @Test
@@ -94,6 +101,10 @@ class ReleaseSelectionTest {
         assertFalse(ReleaseSelection.isUpdate(1_005_000L, 1_005_000L))
         assertFalse(ReleaseSelection.isUpdate(1_004_000L, 1_005_000L))
         assertFalse(ReleaseSelection.isUpdate(null, 1_005_000L))
+        // The demo's plain increasing versionCodes must behave the same way: 7 > 6 is an update,
+        // 7 == 7 is UpToDate, so a self-update loop terminates after one install.
+        assertTrue(ReleaseSelection.isUpdate(7L, 6L))
+        assertFalse(ReleaseSelection.isUpdate(7L, 7L))
     }
 
     @Test
