@@ -1,6 +1,6 @@
 # 11 · 测试与构建
 
-> 进阶篇。本文给出本仓库的环境要求、完整命令清单、manifest 合并验证、真机验证、mavenLocal 接入演练、24 个单测逐项覆盖说明与 CI 建议。
+> 进阶篇。本文给出本仓库的环境要求、完整命令清单、manifest 合并验证、真机验证、mavenLocal 接入演练、26 个单测逐项覆盖说明与 CI 建议。
 >
 > 事实来源：`build.gradle.kts`、`settings.gradle.kts`、`gradle.properties`、`gradle/libs.versions.toml`、`gradle/wrapper/gradle-wrapper.properties`、`updater/build.gradle.kts`、`updater/consumer-rules.pro`、`updater/src/main/AndroidManifest.xml`、`updater/src/main/res/xml/updater_file_paths.xml`，以及 4 个测试类源码。
 >
@@ -40,7 +40,7 @@ export JAVA_HOME=/path/to/jdk-17   # 替换为你本机 JDK 17 的实际路径
 # ① 一次性全量（单测 + AAR + sample APK）—— 推荐作为改代码后的回归
 sh gradlew :updater:testDebugUnitTest :updater:assembleRelease :sample:assembleDebug --console=plain
 
-# ② 单独：24 例 JVM 单测
+# ② 单独：26 例 JVM 单测
 sh gradlew :updater:testDebugUnitTest --console=plain
 #    单测报告：updater/build/reports/tests/testDebugUnitTest/index.html
 
@@ -168,6 +168,7 @@ R8 场景额外验证（debug 正常易掩盖问题）：用消费方的 `assemb
 | 点下载立刻「完成」却拿到旧文件 | unique work 的历史终态让 `all { isFinished }` 立刻成立，等错了 work | `downloadInForeground()` 只等 `UpdateWorkScheduler.start()` 返回的本次 `UUID` |
 | 秒失败 / 一直 0 且 `.part` 已存在 | `.part` 与新 asset 不匹配，服务端对 `Range` 返回 416 | 删掉 `.part` 并从 0 重下（单测 #6） |
 | 代理接受连接但零字节 | 旧逻辑要等满 120s `readTimeout` 才失败 | 零字节 + `InterruptedIOException` 视为连接失败立刻切直连；`connectTimeout` 10s |
+| 能下，但满速也就几十 KB/s | 到 release CDN 的**单连接**带宽本身很低，和 SDK 的读写循环无关 | 已知 `sizeBytes` 时切 4 段并发 Range（每段独立连接）；实测单连接 90–180 KB/s → 4 连接 130–480 KB/s。先用 curl 测同一 URL 做基准，判定方法与「换托管」的最终解法见 [08 §2.1](08-troubleshooting.md) |
 
 > **不要**用前台下载的 `Flow<Float?>` 给一个只想「点一下就看到下载」的页面：在 `Dispatchers.IO` 上跑 `download(asset, onProgress)`、回调里切回主线程更新 View，是最短且最可靠的链路（[03 §12.3](03-api-reference.md)）。`:sample` 已按此实现，[08 §2](08-troubleshooting.md) 给出了对应的排查顺序。
 
@@ -221,53 +222,57 @@ find . -path '*/build/intermediates/*' -name AndroidManifest.xml | grep -i merge
 
 ---
 
-## 6. 24 个单测分别覆盖什么
+## 6. 26 个单测分别覆盖什么
 
-`updater/src/test/kotlin/dev/cuculus/update/` 共 **4 个测试类、24 例**（7 + 3 + 10 + 4）。命令：`sh gradlew :updater:testDebugUnitTest --console=plain`。以下逐项说明，便于定位回归。
+`updater/src/test/kotlin/dev/cuculus/update/` 共 **4 个测试类、26 例**（9 + 3 + 10 + 4）。命令：`sh gradlew :updater:testDebugUnitTest --console=plain`。
 
-### `ApkDownloaderTest`（7 例，下载语义）
+下表按测试类分组，用例名就是源码里的反引号函数名，可直接全局搜索定位。**刻意不编号**：以前每加一个用例都要把后面二十多行整体重排，改一次错一次。
 
-| # | 用例 | 覆盖内容 |
-|---|---|---|
-| 1 | `downloads an apk with progress and leaves no part file` | 正常下载：返回 target、产物长度一致、**无残留 `.part`**、进度单调且最终 `fraction == 1f`、`bytesDownloaded` / `totalBytes` 正确 |
-| 2 | `rejects a body that is not an apk` | 返回 HTML（200 但非 APK）→ `DownloadException("the downloaded file is not an Android package")`；`target` 与 `.part` 都不存在（垃圾被删除） |
-| 3 | `maps an http error to a download exception and writes nothing` | HTTP 404 → `DownloadException` 含 `404`，**零写入**、无 `.part` |
-| 4 | `replaces a stale file from an earlier download attempt` | 已存在的陈旧 `target` 被新下载覆盖（原子改名 `REPLACE_EXISTING`），目录最终只剩 1 个文件 |
-| 5 | `resumes a partial download via a range request` | 已有 `.part`（前半）→ 请求头带 `Range: bytes=2048-`，服务端 `206 Partial Content`，最终文件完整且字节一致 |
-| 6 | `retries from zero when the server rejects a stale range` | 已存在过长的 `.part`（4096 字节）→ 首个请求带 `Range: bytes=4096-`、服务端返回 `416`；SDK 删掉 `.part` 并从 0 重下（第二个请求**没有** Range），最终字节完整、无残留 `.part`。防止旧 worker 留下的过期续传点让下载永久失败、进度停在 0 |
-| 7 | `keeps the part file when the download fails mid-transfer` | 中途失败（HTTP 500）时 `.part` **必须保留**（2048 字节）、`target` 不存在——防止 `finally { part.delete() }` 抹掉续传点 |
+### `ApkDownloaderTest`（9 例，下载语义）
+
+| 用例 | 覆盖内容 |
+|---|---|
+| `downloads an apk with progress and leaves no part file` | 正常下载：返回 target、产物长度一致、**无残留 `.part`**、进度单调且最终 `fraction == 1f`、`bytesDownloaded` / `totalBytes` 正确 |
+| `rejects a body that is not an apk` | 返回 HTML（200 但非 APK）→ `DownloadException("the downloaded file is not an Android package")`；`target` 与 `.part` 都不存在（垃圾被删除） |
+| `maps an http error to a download exception and writes nothing` | HTTP 404 → `DownloadException` 含 `404`，**零写入**、无 `.part` |
+| `replaces a stale file from an earlier download attempt` | 已存在的陈旧 `target` 被新下载覆盖（原子改名 `REPLACE_EXISTING`），目录最终只剩 1 个文件 |
+| `resumes a partial download via a range request` | 已有 `.part`（前半）→ 请求头带 `Range: bytes=2048-`，服务端 `206 Partial Content`，最终文件完整且字节一致 |
+| `retries from zero when the server rejects a stale range` | 已存在过长的 `.part`（4096 字节）→ 首个请求带 `Range: bytes=4096-`、服务端返回 `416`；SDK 删掉 `.part` 并从 0 重下（第二个请求**没有** Range），最终字节完整、无残留 `.part`。防止旧 worker 留下的过期续传点让下载永久失败、进度停在 0 |
+| `keeps the part file when the download fails mid-transfer` | 中途失败（HTTP 500）时 `.part` **必须保留**（2048 字节）、`target` 不存在——防止 `finally { part.delete() }` 抹掉续传点 |
+| `fans out over parallel range requests when the size is known` | 传入已知总长 → 发出 4 个 `Range` 请求，它们的区间**无缝铺满** `[0, total)`；产物字节一致、无残留 `.part`。锁住分段并行的正确性（区间算错会静默产生空洞文件） |
+| `falls back to a single stream when the server ignores range requests` | 服务端对每个 Range 都回 `200` 全量 → 分段路径放弃并行、删掉半成品 `.part`、改单流重下一次，最终字节正确而不是半截文件 |
 
 ### `GitHubReleaseApiTest`（3 例，JSON 解析与错误映射）
 
-| # | 用例 | 覆盖内容 |
-|---|---|---|
-| 8 | `parses the latest release with its assets` | 解析 `tag_name` / `name` / `body` / `published_at`、2 个 asset；APK 的 `contentType == application/vnd.android.package-archive`、`sizeBytes`、`downloadUrl` 正确；非 APK asset 的 `contentType` 为 `application/zip` |
-| 9 | `maps a 404 to a no-published-release error` | 404 → `ReleaseApiException(statusCode = 404)`（`"no published release"`） |
-| 10 | `maps a server error with the github message` | 503 + `{"message":"rate limit exceeded"}` → `ReleaseApiException(503)`，message 含 GitHub 返回的 `rate limit` 文案 |
+| 用例 | 覆盖内容 |
+|---|---|
+| `parses the latest release with its assets` | 解析 `tag_name` / `name` / `body` / `published_at`、2 个 asset；APK 的 `contentType == application/vnd.android.package-archive`、`sizeBytes`、`downloadUrl` 正确；非 APK asset 的 `contentType` 为 `application/zip` |
+| `maps a 404 to a no-published-release error` | 404 → `ReleaseApiException(statusCode = 404)`（`"no published release"`） |
+| `maps a server error with the github message` | 503 + `{"message":"rate limit exceeded"}` → `ReleaseApiException(503)`，message 含 GitHub 返回的 `rate limit` 文案 |
 
 ### `ReleaseSelectionTest`（10 例，选包 / 版本号 / 纯规则）
 
-| # | 用例 | 覆盖内容 |
-|---|---|---|
-| 11 | `picks the apk asset GitHub identifies as an android package` | 优先选 `contentType == APK_CONTENT_TYPE` 的 `.apk` |
-| 12 | `picks an apk without a content type when no typed apk exists` | 无 typed APK 时仍按「`.apk` 过滤 + `sizeBytes` 降序（相同则保序）」选取 |
-| 13 | `returns null when the release has no apk at all` | 只有 `notes.txt` / 空列表 → `pickUpdateApk` 返回 null |
-| 14 | `reads the version code from the release asset name` | `AssetNameSuffix`：尾部数字 `1006000`、`app-9.apk → 9`、大小写 `.APK → 9` |
-| 15 | `rejects asset names without a trailing numeric code` | `venera-native.apk` / `-v1.6.0.apk` / `app-v1.6.0.apk` / 空串 → null |
-| 16 | `derives the version code from release tags` | `TagScheme`：`v1.6.0 → 1_006_000`、`1.6.0`、`v1.0.0 → 1_000_000`、`v2.0.10 → 2_000_010`、`v1.6 → 1_006_000`、`v999.999.999 → 999_999_999` |
-| 17 | `rejects unparsable or out-of-scheme tags` | 空 / `latest` / `vX.Y.Z` / `v1` / `v1.6.0.4`（4 段）/ `v1.1000.0`（字段 >999）→ null |
-| 18 | `the asset name wins and the tag is only the fallback` | `Or`：资产名优先；资产名解析失败回退 tag；两者都失败 → null；blank 资产名两者都拒绝、**不臆造版本号** |
-| 19 | `an update needs a strictly larger version code` | `isUpdate`：`>` true、`==` false、`<` false、`null` false |
-| 20 | `asset file names are stripped of path characters` | `sanitizeAssetFileName`：`a/b\c.apk → a_b_c.apk`，合法名不变 |
+| 用例 | 覆盖内容 |
+|---|---|
+| `picks the apk asset GitHub identifies as an android package` | 优先选 `contentType == APK_CONTENT_TYPE` 的 `.apk` |
+| `picks an apk without a content type when no typed apk exists` | 无 typed APK 时仍按「`.apk` 过滤 + `sizeBytes` 降序（相同则保序）」选取 |
+| `returns null when the release has no apk at all` | 只有 `notes.txt` / 空列表 → `pickUpdateApk` 返回 null |
+| `reads the version code from the release asset name` | `AssetNameSuffix`：尾部数字 `1006000`、`app-9.apk → 9`、大小写 `.APK → 9` |
+| `rejects asset names without a trailing numeric code` | `venera-native.apk` / `-v1.6.0.apk` / `app-v1.6.0.apk` / 空串 → null |
+| `derives the version code from release tags` | `TagScheme`：`v1.6.0 → 1_006_000`、`1.6.0`、`v1.0.0 → 1_000_000`、`v2.0.10 → 2_000_010`、`v1.6 → 1_006_000`、`v999.999.999 → 999_999_999` |
+| `rejects unparsable or out-of-scheme tags` | 空 / `latest` / `vX.Y.Z` / `v1` / `v1.6.0.4`（4 段）/ `v1.1000.0`（字段 >999）→ null |
+| `the asset name wins and the tag is only the fallback` | `Or`：资产名优先；资产名解析失败回退 tag；两者都失败 → null；blank 资产名两者都拒绝、**不臆造版本号** |
+| `an update needs a strictly larger version code` | `isUpdate`：`>` true、`==` false、`<` false、`null` false |
+| `asset file names are stripped of path characters` | `sanitizeAssetFileName`：`a/b\c.apk → a_b_c.apk`，合法名不变 |
 
 ### `UpdateStateStoreTest`（4 例，APK 头校验）
 
-| # | 用例 | 覆盖内容 |
-|---|---|---|
-| 21 | `accepts a file starting with the zip local file header` | `isValidApk`：`PK\x03\x04` 开头 → true |
-| 22 | `rejects a file that does not start with the zip header` | 普通文本 → false |
-| 23 | `rejects a missing file` | 文件不存在 → false |
-| 24 | `rejects a file shorter than the header` | 仅 2 字节（短于 4 字节魔数）→ false |
+| 用例 | 覆盖内容 |
+|---|---|
+| `accepts a file starting with the zip local file header` | `isValidApk`：`PK\x03\x04` 开头 → true |
+| `rejects a file that does not start with the zip header` | 普通文本 → false |
+| `rejects a missing file` | 文件不存在 → false |
+| `rejects a file shorter than the header` | 仅 2 字节（短于 4 字节魔数）→ false |
 
 > **未覆盖**（设计文档 §2 已标注，靠真机验证补）：`ApkInstaller`、`UpdateNotifier`、`UpdateWorkScheduler` / `UpdateDownloadWorker`（FGS 启动、进度持久化、按 requestId 等待）、`checkAndPrefetch` 的状态迁移、代理 → 直连回退分支与零字节 stall 回退、`UpdateStateStore` 的 SharedPreferences I/O。对应验证见 §4、§4.1 与 [06 篇](06-behavior-and-edge-cases.md)。
 
@@ -300,7 +305,7 @@ steps:
 要点：
 
 - **固定 JDK 17**（`compileOptions` / AGP 9.3.1 要求）；用 `sh gradlew`（本机无执行位）。
-- 每次 PR 跑 §2 ① 的全量命令：24 例单测必须全绿，AAR 与 sample APK 必须能产出。
+- 每次 PR 跑 §2 ① 的全量命令：26 例单测必须全绿，AAR 与 sample APK 必须能产出。
 - **把「AAR 携带 `proguard.txt` 且含 worker keep 规则」作为 CI 断言**，防止 `consumer-rules.pro` 被误删导致 release 崩溃（[08 §7](08-troubleshooting.md)）。
 - 增加一步「模拟消费方」：用 `mavenLocal()` + 一个零清单声明的 scratch app 编译，检查合并清单条目（§3、§5），把「清单合并契约」也纳入回归。
 - 版本号来自 `gradle.properties:updaterSdkVersion`，发布流程只改这一处，不要散改。

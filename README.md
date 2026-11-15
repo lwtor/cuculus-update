@@ -210,6 +210,13 @@ progress persistence — any of which can leave the UI pinned at 0%. Foreground 
 capability for "keep downloading after the user leaves"; see
 [§2 of troubleshooting](docs/08-troubleshooting.md).
 
+**Slow links are handled twice over.** A known asset size lets the SDK split the transfer into
+four concurrent ranged requests, each on its own connection — a release CDN usually caps
+throughput per connection, so one stream wastes bandwidth. Progress is also reported on a
+200 ms timer rather than only every 256 KB, and the demo prints the live rate
+(`下载中 12.4%   476 KB / 3.8 MB   148 KB/s`), because "0%" on a throttled link is
+indistinguishable from a stalled one.
+
 **Downloading is deliberately not version-gated.** 检查更新 only *displays* the comparison; the
 下载最新版本 button calls `Updater.latestInstallableAsset()`, which fetches the latest release's
 APK without comparing versionCodes or decoding one from the asset name. The button therefore stays
@@ -219,7 +226,7 @@ update *badge* on `check()` / `checkAndPrefetch()` — the two concerns are sepa
 [§1.4 of the API reference](docs/03-api-reference.md).
 
 ```bash
-sh gradlew :updater:testDebugUnitTest --console=plain   # 24 unit tests
+sh gradlew :updater:testDebugUnitTest --console=plain   # 26 unit tests
 sh gradlew :updater:assembleRelease --console=plain
 sh gradlew :sample:assembleDebug --console=plain
 sh gradlew :updater:publishToMavenLocal --console=plain # dev.cuculus:cuculus-update:<updaterSdkVersion>

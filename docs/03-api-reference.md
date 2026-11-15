@@ -190,7 +190,8 @@ latestRelease(owner, repository)
 ### 2.5 `download(asset, onProgress)` 细节
 
 - 写入 `<target>.apk.part`；若已存在则发 `Range: bytes=<n>-`，`206` 续写、`200` 重写。
-- 每约 256 KiB 触发一次 `onProgress(UpdateProgress(bytesDownloaded, totalBytes))`，结束再触发一次。
+- `onProgress(UpdateProgress(bytesDownloaded, totalBytes))` 的触发条件是「累计 ≥ 256 KiB **或** 距上次 ≥ 200 ms」，两者取先到，结束时必再触发一次。纯字节节流在慢网下会让 UI 几秒才动一次，看起来像卡在 0%。
+- **分段并行**：当 `asset.sizeBytes ≥ 1 MiB` 且没有续传点（`.part` 不存在）时，切成 4 段并发 `Range` 请求。每段自己一个 `OkHttpClient` + 独立 `ConnectionPool`，否则 OkHttp 会把 4 个请求复用/多路复用到同一条连接上，并行就白做了。要求每段都返回 `206`；任一段失败，或服务端忽略 Range 回了 `200`，就删掉半成品 `.part` 改单流从头重下一次（所以分段只是加速，永远不会把下载搞坏）。
 - HTTP `416`（`.part` 与新 asset 不匹配，常见于 asset 被替换或旧 worker 留下过期续传点）→ 删掉 `.part` 并从 0 重下**一次**；`connectTimeout` 为 10s，代理接受连接却零字节时视为连接失败并回退直连（[06 §5](06-behavior-and-edge-cases.md)）。
 - 完成前校验 ZIP 头 `PK\x03\x04`；失败删 `.part` 并抛 `DownloadException("the downloaded file is not an Android package")`。
 - 截断（已知总长但接收不足）→ `DownloadException`。

@@ -48,7 +48,7 @@
 | `08-troubleshooting.md` | 常见故障与排查 | 每条给出「检查命令 / 日志线索 / 修复方式」 | 更新不弹、下载失败、安装报错时 |
 | `09-llm-playbook.md` | 大模型「一步到位」接入手册 | 决策树、完整可复制代码、逐条可验证的验收清单；仓库根 `README.md` 指定的大模型首选入口 | 大模型生成接入代码、需要速查决策树时 |
 | `10-design-rationale.md` | 设计缘由 | 把源项目 SDK 抽取设计结论整理成简体中文，解释「为什么这样设计」 | 想理解架构取舍时 |
-| `11-testing-and-build.md` | 测试与构建 | 环境要求、完整命令清单、manifest 合并验证、真机验证、mavenLocal 演练、24 个单测逐项说明、CI 建议 | 构建 / 验证 / 发布 AAR 时 |
+| `11-testing-and-build.md` | 测试与构建 | 环境要求、完整命令清单、manifest 合并验证、真机验证、mavenLocal 演练、26 个单测逐项说明、CI 建议 | 构建 / 验证 / 发布 AAR 时 |
 | `../llms.txt` | 根级精简摘要 | 面向大模型的仓库级极简说明 | 快速了解仓库全貌时 |
 | `../AGENTS.md` | 根级 Agent 入口 | 第一次进入本仓库的 AI / 工程师入口，读完再动手 | 首次接触本仓库时 |
 
@@ -94,5 +94,5 @@ sh gradlew :updater:testDebugUnitTest :updater:assembleRelease :sample:assembleD
 
 - `gradlew` 无执行位，必须用 `sh gradlew`。
 - JDK 17：需自行配置 `JAVA_HOME` 指向本机 JDK 17（例如 Amazon Corretto 17）。
-- 单测 4 个类共 **24 例**：`ReleaseSelectionTest` 10 / `ApkDownloaderTest` 7 / `GitHubReleaseApiTest` 3 / `UpdateStateStoreTest` 4；逐项覆盖说明见 `11-testing-and-build.md`。
+- 单测 4 个类共 **26 例**：`ReleaseSelectionTest` 10 / `ApkDownloaderTest` 9 / `GitHubReleaseApiTest` 3 / `UpdateStateStoreTest` 4；逐项覆盖说明见 `11-testing-and-build.md`。
 - 本地发布到 Maven：`sh gradlew :updater:publishToMavenLocal --console=plain`。

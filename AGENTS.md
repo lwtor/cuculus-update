@@ -61,7 +61,7 @@ cuculus-update/
 | `UpdaterPaths.kt` | internal | `updaterCacheDir()` — **唯一的缓存目录真源** |
 | `UpdaterException.kt` | public | `UpdaterException` / `ReleaseApiException` / `DownloadException` |
 
-`updater/src/test/kotlin/dev/cuculus/update/`：4 个测试类、24 例，见 [`docs/11-testing-and-build.md`](docs/11-testing-and-build.md)。
+`updater/src/test/kotlin/dev/cuculus/update/`：4 个测试类、26 例，见 [`docs/11-testing-and-build.md`](docs/11-testing-and-build.md)。
 
 ## 3. 构建 / 测试命令
 
@@ -75,7 +75,7 @@ export JAVA_HOME=/path/to/jdk-17   # 替换为你本机 JDK 17 的实际路径
 sh gradlew :updater:testDebugUnitTest :updater:assembleRelease :sample:assembleDebug --console=plain
 
 # 单独命令
-sh gradlew :updater:testDebugUnitTest --console=plain          # 24 例 JVM 单测
+sh gradlew :updater:testDebugUnitTest --console=plain          # 26 例 JVM 单测
 sh gradlew :updater:assembleRelease --console=plain            # AAR：updater/build/outputs/aar/updater-release.aar
 sh gradlew :sample:assembleDebug --console=plain               # sample APK
 sh gradlew :updater:publishToMavenLocal --console=plain        # 发到 ~/.m2：dev.cuculus:cuculus-update:<updaterSdkVersion>
@@ -103,7 +103,7 @@ sh gradlew clean --console=plain
 - 使用 **Conventional Commits**：`feat: ...` / `fix: ...` / `docs: ...` / `test: ...` / `refactor: ...` / `chore: ...`，可带作用域如 `docs(09): ...`。
 - **每个小任务单独一个 commit**，不要把不相关的改动塞进同一个提交；提交信息正文写清「为什么」。
 - 只提交本任务的产物：不要顺手改 `README.md`、`build.gradle.kts`、`settings.gradle.kts`、`gradle.properties`、`.gitignore`、任何 `.kt` 源码，除非该任务明确要求。
-- 提交前跑一遍 §3 的单测与 assemble 命令，确认 24 例全绿。
+- 提交前跑一遍 §3 的单测与 assemble 命令，确认 26 例全绿。
 - **本仓库当前由仓库所有者统一执行 `git add` / `git commit` / `git push`；执行具体写文档 / 改代码任务时不要自行提交。**
 - 禁止强推、禁止 `--no-verify`、禁止改写已发布历史。
 

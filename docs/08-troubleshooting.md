@@ -83,6 +83,25 @@ adb logcat -v brief | grep -iE 'cuculus|UpdateDownload|WorkManager|WM-|DownloadE
   4. **只想「点一下就看到下载」的页面（含本仓库 `:sample`）不要走前台链路**：在 `Dispatchers.IO` 上用 `download(asset, onProgress)`，`onProgress` 里切回主线程更新 View，绕过 FGS 权限 / 通知渠道 / WorkManager 进度持久化（[03 §12.3](03-api-reference.md)）；
   5. UI 把「下载中」做成可等待态，不要自己设短超时杀掉协程；用户可点「取消」后重试。
 
+### 2.1 下载很慢（几十 KB/s），和别的 App 差几十倍
+
+先分清是谁的问题，别先改代码。用同一台电脑测同一个 URL 拿基准：
+
+```bash
+curl -o /dev/null -w 'speed=%{speed_download}B/s total=%{time_total}s\n' -L \
+  "https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>.apk"
+```
+
+- **同一 URL 用 curl 也慢** → 到 GitHub 资产 CDN（`release-assets.githubusercontent.com`）的链路问题，和 SDK 无关。实测某网络单连接 90–180 KB/s，直连更差（约 44 KB/s），三个常见 GitHub 镜像也只有约 170 KB/s；而同一台设备下载漫画站的图能到几 MB/s——两类内容不在同一个 CDN 上，不能横向比。
+- **curl 快、App 慢** → 才轮到查接入方：是否配了极慢的系统代理（见第 11 条）、是否把 `download()` 放在主线程、是否每收一次进度就整页重绘。
+
+SDK 侧已经做的两件事（细节见 [03 §2.5](03-api-reference.md)）：
+
+1. **分段并行**：已知 `asset.sizeBytes` 时切 4 段并发 `Range`，每段独立 `OkHttpClient` + 独立 `ConnectionPool`。release CDN 常按**单连接**限速，单流只能吃掉一部分带宽。实测同一链路单连接 90–180 KB/s、4 连接 130–480 KB/s（波动很大，平均约 2x）。
+2. **进度按时间节流**（≥200 ms）而不是只按 256 KB 累计。否则 90 KB/s 下第一次回调要等约 3 秒，界面「0% / 0 KB」看着就像完全没动。
+
+> 想彻底摆脱这条慢链路，最终解法是**换托管**：把 APK 放到国内对象存储/自建域名，让 release 资产的 `downloadUrl` 指过去。GitHub release 的资产 URL 是固定的，所以这要么需要发布侧改造，要么给 SDK 加一个「自定义下载 URL」开关——当前版本没有，需要时再加。
+
 ## 3. 安装报「解析软件包时出现问题」
 
 - **检查命令**：
