@@ -31,6 +31,9 @@ class UpdateDownloadWorker(
             return Result.failure(workDataOf(OUTPUT_ERROR to "missing download_url or target_name"))
         }
         val scope = inputData.getString(INPUT_SCOPE) ?: DEFAULT_SCOPE
+        // 0 means "unknown": the downloader then keeps to a single stream, which still works but
+        // cannot fan out over several connections. Updater always passes the advertised size.
+        val totalBytes = inputData.getLong(INPUT_TOTAL_BYTES, 0L).takeIf { it > 0 }
 
         val notifier = UpdateNotifier(applicationContext, scope, stringsFromInput())
         val downloader = ApkDownloader(WorkerHttp.resolve())
@@ -47,9 +50,16 @@ class UpdateDownloadWorker(
         return try {
             setForeground(notifier.foregroundInfo(0f))
             setProgress(workDataOf(PROGRESS_KEY to 0f))
-            downloader.download(downloadUrl, target) { progress ->
-                // onProgress is a plain callback, so the async bridge is used here...
-                setProgressAsync(workDataOf(PROGRESS_KEY to (progress.fraction ?: 0f)))
+            val lastPercent = java.util.concurrent.atomic.AtomicInteger(-1)
+            downloader.download(downloadUrl, target, totalBytes) { progress ->
+                // onProgress fires on a background thread (one per segment on the segmented path)
+                // and now also on a time interval, so the async bridge is used here and
+                // WorkManager is only written when the whole percent changes — otherwise a slow
+                // download would hit its database every 200 ms for no visible gain.
+                val percent = ((progress.fraction ?: 0f) * 100).toInt()
+                if (lastPercent.getAndSet(percent) != percent) {
+                    setProgressAsync(workDataOf(PROGRESS_KEY to (progress.fraction ?: 0f)))
+                }
             }
             // ...and awaited here, so the terminal progress is guaranteed to be persisted before
             // the worker finishes (an unawaited final setProgressAsync could be lost).
@@ -81,6 +91,7 @@ class UpdateDownloadWorker(
     companion object {
         const val INPUT_DOWNLOAD_URL: String = "download_url"
         const val INPUT_TARGET_NAME: String = "target_name"
+        const val INPUT_TOTAL_BYTES: String = "total_bytes"
         const val INPUT_SCOPE: String = "scope"
         const val INPUT_CHANNEL_NAME: String = "channel_name"
         const val INPUT_CHANNEL_DESCRIPTION: String = "channel_description"

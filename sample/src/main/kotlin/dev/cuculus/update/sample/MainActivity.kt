@@ -12,9 +12,11 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import dev.cuculus.update.InstallResult
 import dev.cuculus.update.UpdateCheck
+import dev.cuculus.update.UpdateProgress
 import dev.cuculus.update.UpdateStatus
 import dev.cuculus.update.Updater
 import java.io.File
+import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -189,14 +191,23 @@ class MainActivity : Activity() {
             showStatus("开始下载 ${asset.name}（不校验版本号）")
 
             try {
+                // The SDK fans a known-size asset out over several connections and reports progress
+                // on a time interval, so the bar keeps moving even at 50 KB/s. 150 ms is the
+                // display throttle; the rate is measured over the same window.
                 val apk = withContext(Dispatchers.IO) {
+                    var lastBytes = 0L
+                    var lastSampledAt = System.currentTimeMillis()
+                    var lastShownAt = 0L
                     updater.download(asset) { progress ->
-                        val percent = ((progress.fraction ?: 0f) * 100).toInt().coerceIn(0, 100)
-                        // onProgress is a plain callback on the IO dispatcher; hop back to Main
-                        // before touching any View.
-                        scope.launch {
-                            progressBar.progress = percent
-                            showStatus("下载中 $percent%（${progress.bytesDownloaded / 1024} KB）")
+                        val now = System.currentTimeMillis()
+                        if (now - lastShownAt >= 150) {
+                            val elapsed = (now - lastSampledAt).coerceAtLeast(1L)
+                            val rate = (progress.bytesDownloaded - lastBytes) * 1000L / elapsed
+                            lastBytes = progress.bytesDownloaded
+                            lastSampledAt = now
+                            lastShownAt = now
+                            // onProgress runs on a download thread; hop to Main for the Views.
+                            scope.launch { renderProgress(progress, rate) }
                         }
                     }
                 }
@@ -219,6 +230,26 @@ class MainActivity : Activity() {
                 downloadButton.isEnabled = true
             }
         }
+    }
+
+    /**
+     * Shows the real transfer rate next to the byte count. Chasing "why is it slow" without a
+     * number is guesswork: a percentage alone cannot distinguish a stalled connection from a
+     * throttled CDN, and 0.4% of a 3.8 MB file is indistinguishable from no progress at all.
+     */
+    private fun renderProgress(progress: UpdateProgress, bytesPerSecond: Long) {
+        val fraction = progress.fraction
+        progressBar.progress = ((fraction ?: 0f) * 100).toInt().coerceIn(0, 100)
+        val percent = String.format(Locale.US, "%.1f", (fraction ?: 0f) * 100f)
+        val done = formatBytes(progress.bytesDownloaded)
+        val size = progress.totalBytes?.let { " / " + formatBytes(it) } ?: ""
+        showStatus("下载中 $percent%   $done$size   ${formatBytes(bytesPerSecond)}/s")
+    }
+
+    private fun formatBytes(bytes: Long): String = when {
+        bytes >= 1024L * 1024L -> String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
+        bytes >= 1024L -> String.format(Locale.US, "%.0f KB", bytes / 1024.0)
+        else -> "$bytes B"
     }
 
     private fun installUpdate() {

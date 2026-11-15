@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Cuculus Update Demo</string>
-    <string name="demo_subtitle">本 App 自更新演示 · 下载不校验版本号，随时可重复测试</string>
+    <string name="demo_subtitle">本 App 自更新演示 · 4 连接分段下载 · 不校验版本号，随时可重复测试</string>
     <string name="version_format">本 App 版本 %1$s (versionCode %2$d)</string>
     <string name="check_update">检查更新</string>
     <string name="download">下载最新版本</string>

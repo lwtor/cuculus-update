@@ -83,7 +83,14 @@ class Updater private constructor(
 
     override suspend fun downloadInForeground(asset: ReleaseAsset): File {
         val targetName = ReleaseSelection.sanitizeAssetFileName(asset.name)
-        val requestId = scheduler.start(appContext, asset.downloadUrl, targetName, config.scope, config.strings)
+        val requestId = scheduler.start(
+            appContext,
+            asset.downloadUrl,
+            targetName,
+            asset.sizeBytes,
+            config.scope,
+            config.strings,
+        )
         currentDownloadId = requestId
 
         // Wait for THIS request only. getWorkInfosForUniqueWorkFlow() also emits historic records
@@ -126,7 +133,10 @@ class Updater private constructor(
         onProgress: (UpdateProgress) -> Unit,
     ): File {
         val target = File(downloadDirectory, ReleaseSelection.sanitizeAssetFileName(asset.name))
-        return downloader.download(asset.downloadUrl, target, onProgress)
+        // The advertised size lets the downloader fan out over several connections; a wrong value
+        // only costs one wasted attempt, because the segmented path verifies the byte count and
+        // falls back to a single stream.
+        return downloader.download(asset.downloadUrl, target, asset.sizeBytes, onProgress)
     }
 
     override fun install(apk: File): InstallResult = installer.install(appContext, apk)
@@ -159,7 +169,7 @@ class Updater private constructor(
 
         val target = File(downloadDirectory, ReleaseSelection.sanitizeAssetFileName(available.asset.name))
         try {
-            downloader.download(available.asset.downloadUrl, target)
+            downloader.download(available.asset.downloadUrl, target, available.asset.sizeBytes)
             stateStore.saveDownloadedApk(available.versionCode, target.absolutePath)
             mutableStatus.value = UpdateStatus.Downloaded(available.versionCode, target)
         } catch (error: Exception) {

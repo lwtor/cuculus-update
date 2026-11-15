@@ -175,6 +175,87 @@ class ApkDownloaderTest {
         }
     }
 
+    @Test
+    fun `fans out over parallel range requests when the size is known`() = runTest {
+        val bytes = apkBytes(16 * 1024)
+        MockWebServer().use { server ->
+            server.dispatcher = object : mockwebserver3.Dispatcher() {
+                override fun dispatch(request: mockwebserver3.RecordedRequest): MockResponse {
+                    val (from, to) = request.headers["Range"]!!
+                        .removePrefix("bytes=")
+                        .split("-")
+                        .map { it.toLong() }
+                    return MockResponse.Builder()
+                        .code(206)
+                        .addHeader("Content-Range", "bytes $from-$to/${bytes.size}")
+                        .body(Buffer().write(bytes.copyOfRange(from.toInt(), to.toInt() + 1)))
+                        .build()
+                }
+            }
+            server.start()
+            val folder = tmp.newFolder()
+            val target = File(folder, "update.apk")
+            val downloader = ApkDownloader(
+                OkHttpClient(),
+                progressIntervalBytes = 1024,
+                segmentCount = 4,
+                minSegmentTotalBytes = 1024,
+            )
+
+            val result = downloader.download(
+                server.url("/release.apk").toString(),
+                target,
+                bytes.size.toLong(),
+            )
+
+            assertEquals(target, result)
+            assertTrue(target.readBytes().contentEquals(bytes))
+            assertFalse(File(folder, "update.apk.part").exists())
+            // One request per segment, each asking for a disjoint slice that tiles the file.
+            val ranges = (1..4)
+                .map { server.takeRequest().headers["Range"]!! }
+                .map { it.removePrefix("bytes=").split("-").map(String::toLong) }
+                .sortedBy { it[0] }
+            assertEquals(listOf(0L, 4096L, 8192L, 12288L), ranges.map { it[0] })
+            assertEquals(listOf(4095L, 8191L, 12287L, 16383L), ranges.map { it[1] })
+        }
+    }
+
+    @Test
+    fun `falls back to a single stream when the server ignores range requests`() = runTest {
+        val bytes = apkBytes(16 * 1024)
+        MockWebServer().use { server ->
+            // This server answers every request with the whole body and `200`, so no ranged
+            // request can be satisfied. The segmented path must degrade to one plain stream
+            // instead of leaving a corrupt file behind.
+            server.dispatcher = object : mockwebserver3.Dispatcher() {
+                override fun dispatch(request: mockwebserver3.RecordedRequest): MockResponse =
+                    MockResponse.Builder().body(Buffer().write(bytes)).build()
+            }
+            server.start()
+            val folder = tmp.newFolder()
+            val target = File(folder, "update.apk")
+            val downloader = ApkDownloader(
+                OkHttpClient(),
+                progressIntervalBytes = 1024,
+                segmentCount = 4,
+                minSegmentTotalBytes = 1024,
+            )
+
+            val result = downloader.download(
+                server.url("/release.apk").toString(),
+                target,
+                bytes.size.toLong(),
+            )
+
+            assertEquals(target, result)
+            assertTrue(target.readBytes().contentEquals(bytes))
+            assertFalse(File(folder, "update.apk.part").exists())
+            // At least one rejected segment attempt, then the plain stream fetches from zero.
+            assertTrue("expected a segment attempt plus a fallback", server.requestCount >= 2)
+        }
+    }
+
     private fun apkBytes(size: Int): ByteArray = ByteArray(size).also { bytes ->
         // APK files are ZIP archives starting with a local file header.
         bytes[0] = 0x50

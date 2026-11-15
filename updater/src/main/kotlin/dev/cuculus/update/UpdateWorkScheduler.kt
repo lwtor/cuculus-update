@@ -32,6 +32,7 @@ internal class UpdateWorkScheduler(val workName: String) {
         context: Context,
         downloadUrl: String,
         targetName: String,
+        totalBytes: Long,
         scope: String,
         strings: UpdaterStrings,
     ): java.util.UUID {
@@ -40,6 +41,7 @@ internal class UpdateWorkScheduler(val workName: String) {
                 workDataOf(
                     UpdateDownloadWorker.INPUT_DOWNLOAD_URL to downloadUrl,
                     UpdateDownloadWorker.INPUT_TARGET_NAME to targetName,
+                    UpdateDownloadWorker.INPUT_TOTAL_BYTES to totalBytes,
                     UpdateDownloadWorker.INPUT_SCOPE to scope,
                     UpdateDownloadWorker.INPUT_CHANNEL_NAME to strings.channelName,
                     UpdateDownloadWorker.INPUT_CHANNEL_DESCRIPTION to strings.channelDescription,
