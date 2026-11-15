@@ -217,6 +217,15 @@ throughput per connection, so one stream wastes bandwidth. Progress is also repo
 (`下载中 12.4%   476 KB / 3.8 MB   148 KB/s`), because "0%" on a throttled link is
 indistinguishable from a stalled one.
 
+**Four connections also mean four chances for a socket to die silently** — NAT timeouts, a Wi-Fi
+to cellular handover, a CDN node recycling the connection. A dead socket raises nothing until the
+read timeout, so a segment that stalls used to freeze the whole transfer at a fixed percentage
+with the button disabled: the "stuck at 80% and never recovers" report. Each segment now has a
+15 s stall window and, on a stall, reconnects with `Range: bytes=<last written byte>-<segment
+end>` — retrying from where it stopped, never from the segment's start, up to four attempts. The
+single stream does the same with a 30 s window and two retries. Cancellation is checked once per
+buffer, so the demo's download button doubles as **cancel** instead of locking up.
+
 **Downloading is deliberately not version-gated.** 检查更新 only *displays* the comparison; the
 下载最新版本 button calls `Updater.latestInstallableAsset()`, which fetches the latest release's
 APK without comparing versionCodes or decoding one from the asset name. The button therefore stays
@@ -226,7 +235,7 @@ update *badge* on `check()` / `checkAndPrefetch()` — the two concerns are sepa
 [§1.4 of the API reference](docs/03-api-reference.md).
 
 ```bash
-sh gradlew :updater:testDebugUnitTest --console=plain   # 26 unit tests
+sh gradlew :updater:testDebugUnitTest --console=plain   # 29 unit tests
 sh gradlew :updater:assembleRelease --console=plain
 sh gradlew :sample:assembleDebug --console=plain
 sh gradlew :updater:publishToMavenLocal --console=plain # dev.cuculus:cuculus-update:<updaterSdkVersion>

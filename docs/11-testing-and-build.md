@@ -1,6 +1,6 @@
 # 11 · 测试与构建
 
-> 进阶篇。本文给出本仓库的环境要求、完整命令清单、manifest 合并验证、真机验证、mavenLocal 接入演练、26 个单测逐项覆盖说明与 CI 建议。
+> 进阶篇。本文给出本仓库的环境要求、完整命令清单、manifest 合并验证、真机验证、mavenLocal 接入演练、29 个单测逐项覆盖说明与 CI 建议。
 >
 > 事实来源：`build.gradle.kts`、`settings.gradle.kts`、`gradle.properties`、`gradle/libs.versions.toml`、`gradle/wrapper/gradle-wrapper.properties`、`updater/build.gradle.kts`、`updater/consumer-rules.pro`、`updater/src/main/AndroidManifest.xml`、`updater/src/main/res/xml/updater_file_paths.xml`，以及 4 个测试类源码。
 >
@@ -40,7 +40,7 @@ export JAVA_HOME=/path/to/jdk-17   # 替换为你本机 JDK 17 的实际路径
 # ① 一次性全量（单测 + AAR + sample APK）—— 推荐作为改代码后的回归
 sh gradlew :updater:testDebugUnitTest :updater:assembleRelease :sample:assembleDebug --console=plain
 
-# ② 单独：26 例 JVM 单测
+# ② 单独：29 例 JVM 单测
 sh gradlew :updater:testDebugUnitTest --console=plain
 #    单测报告：updater/build/reports/tests/testDebugUnitTest/index.html
 
@@ -222,13 +222,13 @@ find . -path '*/build/intermediates/*' -name AndroidManifest.xml | grep -i merge
 
 ---
 
-## 6. 26 个单测分别覆盖什么
+## 6. 29 个单测分别覆盖什么
 
-`updater/src/test/kotlin/dev/cuculus/update/` 共 **4 个测试类、26 例**（9 + 3 + 10 + 4）。命令：`sh gradlew :updater:testDebugUnitTest --console=plain`。
+`updater/src/test/kotlin/dev/cuculus/update/` 共 **4 个测试类、29 例**（12 + 3 + 10 + 4）。命令：`sh gradlew :updater:testDebugUnitTest --console=plain`。
 
 下表按测试类分组，用例名就是源码里的反引号函数名，可直接全局搜索定位。**刻意不编号**：以前每加一个用例都要把后面二十多行整体重排，改一次错一次。
 
-### `ApkDownloaderTest`（9 例，下载语义）
+### `ApkDownloaderTest`（12 例，下载语义）
 
 | 用例 | 覆盖内容 |
 |---|---|
@@ -241,6 +241,9 @@ find . -path '*/build/intermediates/*' -name AndroidManifest.xml | grep -i merge
 | `keeps the part file when the download fails mid-transfer` | 中途失败（HTTP 500）时 `.part` **必须保留**（2048 字节）、`target` 不存在——防止 `finally { part.delete() }` 抹掉续传点 |
 | `fans out over parallel range requests when the size is known` | 传入已知总长 → 发出 4 个 `Range` 请求，它们的区间**无缝铺满** `[0, total)`；产物字节一致、无残留 `.part`。锁住分段并行的正确性（区间算错会静默产生空洞文件） |
 | `falls back to a single stream when the server ignores range requests` | 服务端对每个 Range 都回 `200` 全量 → 分段路径放弃并行、删掉半成品 `.part`、改单流重下一次，最终字节正确而不是半截文件 |
+| `reconnects a stalled segment and continues from its last byte` | 服务端承诺 `0-1023` 却只给 512 字节就断流 → 重试必须是 `Range: bytes=512-1023`，**不能重发 `0-1023`**。重发会把已落盘的 512 字节再累加一遍，`downloaded != total` 触发截断判定，整体退回单流从头下——这正是「卡在 80% 之后进度归零重来」的机制 |
+| `resumes a single stream that ends early instead of restarting` | 单流（`sizeBytes` 未知）收到 `Content-Range` 声明 4096 却只来 2048 → 下一请求带 `Range: bytes=2048-` 而不是从头开始，最终字节一致 |
+| `cancelling the caller aborts the transfer instead of finishing it` | 在进度回调里取消协程：阻塞式 socket 读自己看不到取消，靠每读满一个 buffer 调一次 `ensureActive()` 才能亚秒级停下；预分配出空洞的 `.part` 必须被删除，且不能产出 APK |
 
 ### `GitHubReleaseApiTest`（3 例，JSON 解析与错误映射）
 
@@ -305,7 +308,7 @@ steps:
 要点：
 
 - **固定 JDK 17**（`compileOptions` / AGP 9.3.1 要求）；用 `sh gradlew`（本机无执行位）。
-- 每次 PR 跑 §2 ① 的全量命令：26 例单测必须全绿，AAR 与 sample APK 必须能产出。
+- 每次 PR 跑 §2 ① 的全量命令：29 例单测必须全绿，AAR 与 sample APK 必须能产出。
 - **把「AAR 携带 `proguard.txt` 且含 worker keep 规则」作为 CI 断言**，防止 `consumer-rules.pro` 被误删导致 release 崩溃（[08 §7](08-troubleshooting.md)）。
 - 增加一步「模拟消费方」：用 `mavenLocal()` + 一个零清单声明的 scratch app 编译，检查合并清单条目（§3、§5），把「清单合并契约」也纳入回归。
 - 版本号来自 `gradle.properties:updaterSdkVersion`，发布流程只改这一处，不要散改。

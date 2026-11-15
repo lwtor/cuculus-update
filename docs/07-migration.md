@@ -15,7 +15,7 @@
 1. **现在不要修改 / 删除 venera-native 里的任何文件**，包括 `data/update`、`AppGraph.kt`、`SelfUpdateConfiguration.kt`、`feature/profile` UI、app manifest、`file_paths.xml`、设计文档。
 2. 当前阶段的唯一工作成果是**本仓库（cuculus-update）的 SDK 与知识库**；原项目是「待接入方」，不是「待改动方」。
 3. 迁移按「**先接入、后删旧**」两段式推进：
-   - **阶段 A（现在）**：SDK 独立可用（26 例单测 + AAR + sample APK + `publishToMavenLocal` 全部通过），知识库齐备。
+   - **阶段 A（现在）**：SDK 独立可用（29 例单测 + AAR + sample APK + `publishToMavenLocal` 全部通过），知识库齐备。
    - **阶段 B（本次验证通过后、另行安排）**：在原项目里加入 SDK 依赖 → 装配切换 → 走完 §6 接入验证清单，确认红点 / 静默预下载 / 下载 / 安装 / 续传 / 取消全部无异常 → **此时才允许删除旧 `data/update` 代码**及 app 里重复的 manifest 条目。
 4. 在阶段 B 完成前，原项目应保持**旧代码继续工作**；新旧并存是预期的中间态，不要为了「干净」提前删旧代码。
 5. 原项目 `venera-native` 仓库中的 `docs/sdk/updater-sdk-design.md` 是历史决策记录（**只读**，其结论已整理进本仓库 [10 篇](10-design-rationale.md)），不要在源项目里改它。
@@ -136,7 +136,7 @@
 3. **装配切换（AppGraph）**：见 §4，改为 `Updater.create(...)`，删除 `UpdateEnvironment.configure(...)`，把 `selfUpdateService` 字段换成 `updater`。
 4. **UI 调用点切换（feature/profile）**：见 §5，把 `SelfUpdateGateway` → `UpdateGateway`、类型与方法名全部替换。
 5. **走完接入验证清单（§6）**，逐条打勾，确认无异常。
-6. **验证通过后**才执行清理：删 app manifest 旧条目、删 `file_paths.xml`、删 `SelfUpdateConfiguration` 中的 authority 常量、移除 `project(":data:update")` 依赖、**最后删除整个 `data/update` 模块**及其测试（26 例已在 SDK 侧保留，见 [11 篇](11-testing-and-build.md)）。
+6. **验证通过后**才执行清理：删 app manifest 旧条目、删 `file_paths.xml`、删 `SelfUpdateConfiguration` 中的 authority 常量、移除 `project(":data:update")` 依赖、**最后删除整个 `data/update` 模块**及其测试（29 例已在 SDK 侧保留，见 [11 篇](11-testing-and-build.md)）。
 7. 全量回归：原项目 assemble + 单测 + 真机自更新全链路。
 
 ---
@@ -324,7 +324,7 @@ private fun problemOf(failure: Exception): AboutUpdateProblem =
 
 | # | 验证项 | 期望结果 | 通过 |
 |---|---|---|---|
-| 1 | 编译 / 单测 / AAR / sample APK | `sh gradlew :updater:testDebugUnitTest :updater:assembleRelease :sample:assembleDebug --console=plain` 全绿，26 例通过 | ☐ |
+| 1 | 编译 / 单测 / AAR / sample APK | `sh gradlew :updater:testDebugUnitTest :updater:assembleRelease :sample:assembleDebug --console=plain` 全绿，29 例通过 | ☐ |
 | 2 | `publishToMavenLocal` | `~/.m2/repository/dev/cuculus/cuculus-update/1.0.0/` 出现 AAR + sources jar + pom | ☐ |
 | 3 | 合并清单 | app merged manifest 含 6 权限 + `SystemForegroundService`(dataSync) + `${applicationId}.updater` provider，且 authority 唯一、无重复声明 | ☐ |
 | 4 | 红点 | 启动时 `checkAndPrefetch()` 发现新版本，profile 角标点亮；预取失败时红点仍亮（`UpdateAvailable`） | ☐ |

@@ -527,6 +527,8 @@ UpdaterConfig(
 20. **不要把更新发成 prerelease 却指望 `check()` 能查到**。SDK 调 GitHub `/releases/latest`，该接口**排除 draft 与 prerelease**；只有 prerelease 的仓库会抛 `ReleaseApiException(404, "no published release")`。演示自更新时，云端「新版本」必须是普通 release（[05 篇](05-release-contract.md)、[08 §1](08-troubleshooting.md)）。
 21. **不要把「下载」按钮的可用性和 `UpdateCheck.Available` 绑定**。`check()` 的语义是「要不要亮更新红点」，不是「能不能下载」：`UpToDate(release, asset)` 本身就带 asset，`NoInstallableAsset` 也可能只是版本解析失败而实际仍有 APK。需要「随时可下载 / 强制重装 / Demo 反复测试」时，用具体 `Updater` 上的 `latestInstallableAsset()`（不做版本比较、不解析 versionCode），再交给 `download()` / `downloadInForeground()`（按场景选，见禁止事项 22）；`check()` 继续只负责展示判定（[03 §1.4](03-api-reference.md)）。本仓库 `:sample` 就是这个写法。
 22. **不要用 `downloadInForeground()` 给一个只在当前页面显示进度的 Demo / 调试页提供进度**。前台链路依赖 FGS 能否启动、`POST_NOTIFICATIONS` 与 WorkManager 的进度持久化；任一环节不满足就会表现为「进度一直是 0」。这类页面直接在 `Dispatchers.IO` 上调 `download(asset, onProgress)`（回调里切回主线程），拿真实字节数画进度条；`downloadInForeground()` 只用于「离开页面 / 锁屏仍要继续下载」的场景（[03 §12.3](03-api-reference.md)、[08 §2](08-troubleshooting.md)）。本仓库 `:sample` 就是这个写法。
+23. **不要在 UI 侧给下载协程设短超时（`withTimeout(30_000)`）来「防卡死」**。超时取消会丢掉续传点：分段路径取消时 `.part` 会被删（预分配文件带空洞，长度不可信），于是每次超时重试都从 0 开始，越重试越像卡死。SDK 自己会在 15s 无字节时识别停滞并从末位续传（[03 §2.5](03-api-reference.md)）；要做的是**保存 `Job` 并给用户一个取消按钮**，而不是让 UI 猜什么时候该杀。
+24. **不要把「下载中」的按钮 `isEnabled = false`**。传输期间没有任何出口的话，一旦链路真的卡住，用户只能杀进程——这正是「卡在 80% 再也无法恢复」的另一半原因。按钮应做成「下载 / 取消」双态，取消后 `progressBar` 归零即可重来（[08 §2.2](08-troubleshooting.md)）。
 
 ---
 
