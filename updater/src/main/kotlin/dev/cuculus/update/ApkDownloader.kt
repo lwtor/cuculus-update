@@ -3,6 +3,7 @@ package dev.cuculus.update
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.io.RandomAccessFile
 import java.net.Proxy
 import java.net.SocketTimeoutException
@@ -14,18 +15,34 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
- * A failure establishing the connection; retrying through the other network channel may help.
- * Private to the downloader: [DownloadException] stays a single final public type, and this
- * marker exists only so `downloadInto` can tell "the channel is unreachable" apart from "the
- * server answered with an error", which must never be replayed.
+ * Nothing has been written yet and the channel looks unusable; retrying on the other channel
+ * (proxy vs direct) may help. Private: [DownloadException] stays the single public failure type.
  */
 private class DownloadConnectFailure(message: String) : Exception(message)
+
+/**
+ * Some bytes were written and then the transfer stopped (stall, reset, premature end of body).
+ * The bytes already on disk are a valid prefix, so the fix is to reconnect and continue from
+ * there — not to start over. This is the difference between "recovers on its own" and the
+ * "stuck at 80% forever" behaviour users reported.
+ */
+private class DownloadRetryable(message: String) : Exception(message)
+
+/**
+ * A segment stopped early, carrying the offset it actually reached. Without this the retry would
+ * restart at the segment's original start, re-fetching (and double-counting) bytes that are
+ * already on disk.
+ */
+private class SegmentStalled(val reached: Long, message: String) : Exception(message)
 
 /** The server rejected our Range: the cached `.part` no longer matches this asset. */
 private class StalePartException : Exception("stale partial download")
@@ -41,7 +58,8 @@ data class UpdateProgress(val bytesDownloaded: Long, val totalBytes: Long?) {
 }
 
 /**
- * Streams a release APK to a local file with byte-level progress and resumable downloads.
+ * Streams a release APK to a local file with byte-level progress, resumable downloads and
+ * self-healing after a stalled connection.
  *
  * The bytes land in a `.part` sibling; if a download is interrupted, the next attempt requests the
  * missing range (`Range: bytes=<resumed>-`) so it continues from where it left off instead of
@@ -51,18 +69,21 @@ data class UpdateProgress(val bytesDownloaded: Long, val totalBytes: Long?) {
  * [segmentCount] ranged requests that run concurrently, each on its own connection. A release CDN
  * commonly caps throughput *per connection*, so a single stream leaves bandwidth unused: measured
  * against GitHub's asset CDN one stream sat at ~90–180 KB/s while four streams reached
- * ~130–480 KB/s on the same link. The segmented path is an optimisation only — if the server
- * ignores `Range`, or the advertised size no longer matches the asset, the download falls back to
- * the plain single stream instead of failing.
+ * ~130–480 KB/s on the same link.
  *
- * The download first tries the device's system proxy (which is how the user's VPN accelerates the
- * browser), then falls back to a direct connection when the proxy fails before any progress is
- * made — the two paths are tried per attempt so an unstable proxy does not leave the download
- * permanently stuck.
+ * **Every transfer is retried from where it stopped.** Four concurrent connections also mean four
+ * chances for one socket to die silently, and a single dead socket used to freeze the whole
+ * download until the (previously 120 s) read timeout — the UI sat at a fixed percentage with the
+ * button disabled. Now each segment has a [SEGMENT_READ_TIMEOUT_SECONDS] stall window and retries
+ * from its own last-written offset, and the single stream retries mid-transfer the same way. No
+ * bytes are fetched twice and nothing is restarted from zero.
  *
- * Progress is throttled by *both* bytes and time. A bytes-only throttle (the previous behaviour)
- * meant that at 90 KB/s the UI received its first update only after three seconds and then one
- * every three seconds, which reads as "stuck at 0%" on a slow link.
+ * The segmented path is an optimisation only: if the server ignores `Range`, or the advertised
+ * size no longer matches the asset, the download falls back to the plain single stream.
+ *
+ * Progress is throttled by *both* bytes and time. A bytes-only throttle meant that at 90 KB/s the
+ * UI received its first update only after three seconds and then one every three seconds, which
+ * reads as "stuck at 0%" on a slow link.
  */
 internal class ApkDownloader(
     baseClient: OkHttpClient,
@@ -108,10 +129,13 @@ internal class ApkDownloader(
             try {
                 downloadSegments(url, part, totalBytes!!, onProgress)
             } catch (cancelled: CancellationException) {
+                // The preallocated file has holes, so its length says nothing about what is
+                // actually complete. It must never be picked up as a resume point.
+                part.delete()
                 throw cancelled
             } catch (_: Exception) {
                 // A segmented transfer is only a speed optimisation. Discard the half-written file
-                // (its holes make it useless as a resume point) and do one plain stream instead.
+                // and do one plain stream instead.
                 part.delete()
                 downloadInto(url, part, 0L, onProgress)
             }
@@ -170,9 +194,7 @@ internal class ApkDownloader(
             )
             coroutineScope {
                 segmentRanges(total).map { range ->
-                    async {
-                        readSegment(segmentClient(), url, channel, range, progress)
-                    }
+                    async { fetchSegment(url, channel, range, progress) }
                 }.awaitAll()
             }
             val downloaded = progress.downloaded
@@ -198,23 +220,75 @@ internal class ApkDownloader(
     }
 
     /**
-     * One connection per segment: a fresh [ConnectionPool] prevents OkHttp from reusing a shared
-     * connection (and multiplexing every `Range` onto it), which would defeat the parallelism.
+     * A client with its own [ConnectionPool] so this segment never shares a socket with the other
+     * segments (OkHttp would otherwise reuse one connection and multiplex the ranged requests onto
+     * it, defeating the parallelism). The short read timeout turns a silently dead socket into a
+     * retry within seconds. One client per segment, reused across that segment's retries.
      */
     private fun segmentClient(): OkHttpClient = viaProxyClient.newBuilder()
+        .readTimeout(SEGMENT_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .connectionPool(ConnectionPool(1, KEEP_ALIVE_MINUTES, TimeUnit.MINUTES))
         .build()
 
-    private suspend fun readSegment(
-        client: OkHttpClient,
+    /**
+     * Reads one segment, reconnecting and continuing from the last written offset whenever the
+     * transfer stops. Only a server that refuses ranges is fatal (the caller then drops to a
+     * single stream); everything else is worth another attempt.
+     */
+    private suspend fun fetchSegment(
         url: String,
         channel: FileChannel,
         range: LongRange,
         progress: SegmentProgress,
     ) {
+        var from = range.first
+        var attempt = 0
+        // One client per segment (not per attempt): its own connection pool is what keeps the
+        // ranged requests off each other's socket, and a retry reuses the same pool so a broken
+        // connection is replaced instead of piling up abandoned clients.
+        val client = segmentClient()
+        try {
+            while (true) {
+                try {
+                    readSegment(client, url, channel, from, range.last, progress)
+                    return
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (ignored: RangeIgnoredException) {
+                    throw ignored
+                } catch (stall: Exception) {
+                    // Resume exactly where the bytes stopped, never from the segment's start.
+                    if (stall is SegmentStalled) from = stall.reached
+                    val retryable = stall is SegmentStalled || stall is DownloadConnectFailure
+                    if (!retryable) throw stall
+                    if (++attempt >= SEGMENT_MAX_ATTEMPTS) {
+                        throw DownloadException(
+                            "download stalled at ${from}+: ${stall.message ?: "no progress"}",
+                        )
+                    }
+                    // Drop the connection that just failed: a timed-out or half-read exchange can
+                    // leave a socket in the pool that looks reusable but is not.
+                    client.connectionPool.evictAll()
+                    delay(RETRY_BACKOFF_MILLIS * attempt)
+                }
+            }
+        } finally {
+            client.connectionPool.evictAll()
+        }
+    }
+
+    /** Streams `[from, to]` into [channel]; returns normally only once `to` has been written. */
+    private suspend fun readSegment(
+        client: OkHttpClient,
+        url: String,
+        channel: FileChannel,
+        from: Long,
+        to: Long,
+        progress: SegmentProgress,
+    ) {
         val request = Request.Builder()
             .url(url)
-            .header("Range", "bytes=${range.first}-${range.last}")
+            .header("Range", "bytes=$from-$to")
             .build()
         val response = try {
             awaitResponse(client, request)
@@ -227,26 +301,39 @@ internal class ApkDownloader(
                 },
             )
         }
+        var position = from
         response.use {
             if (it.code != 206) throw RangeIgnoredException(it.code)
-            val body = it.body ?: throw DownloadException("download returned an empty body")
+            val body = it.body ?: throw SegmentStalled(position, "download returned an empty body")
             val source = body.source()
             val buffer = ByteArray(IO_BUFFER_BYTES)
-            var position = range.first
-            while (position <= range.last) {
-                val want = minOf(buffer.size.toLong(), range.last - position + 1).toInt()
-                val read = source.read(buffer, 0, want)
+            while (position <= to) {
+                // Blocking socket reads ignore coroutine cancellation, so a cancelled download
+                // would keep pulling bytes until the segment finished. Check once per buffer
+                // instead: at 100 KB/s that is a sub-second response to the caller's cancel.
+                currentCoroutineContext().ensureActive()
+                val want = minOf(buffer.size.toLong(), to - position + 1).toInt()
+                val read = try {
+                    source.read(buffer, 0, want)
+                } catch (error: InterruptedIOException) {
+                    // No byte for the whole stall window. The bytes already written are valid, so
+                    // the caller reconnects with a Range that starts right here.
+                    throw SegmentStalled(
+                        position,
+                        "the connection stopped after $position bytes: ${error.message}",
+                    )
+                }
                 if (read == -1) break
                 writeFully(channel, buffer, read, position)
                 position += read
                 progress.add(read)
             }
-            if (position <= range.last) {
-                throw DownloadException(
-                    "truncated download: segment ${range.first}-${range.last} " +
-                        "ended at ${position - 1}",
-                )
-            }
+        }
+        if (position <= to) {
+            throw SegmentStalled(
+                position,
+                "the connection ended early at $position (expected ${to + 1})",
+            )
         }
     }
 
@@ -259,32 +346,42 @@ internal class ApkDownloader(
         }
     }
 
-    /** Tries the proxy channel first, then the direct channel when the proxy makes no progress. */
+    /** Tries the proxy channel first, then the direct channel, and resumes after any stall. */
     private suspend fun downloadInto(
         url: String,
         part: File,
         startBytes: Long,
         onProgress: (UpdateProgress) -> Unit,
     ) {
-        val request = Request.Builder().url(url).get().apply {
-            if (startBytes > 0) header("Range", "bytes=$startBytes-")
-        }.build()
-
-        val attempts = listOf(viaProxyClient, directClient)
-        var lastFailure: String? = null
-        for ((index, client) in attempts.withIndex()) {
+        val channels = listOf(viaProxyClient, directClient)
+        var channel = 0
+        var resumeFrom = startBytes
+        var retries = 0
+        while (true) {
+            val request = Request.Builder().url(url).get().apply {
+                if (resumeFrom > 0) header("Range", "bytes=$resumeFrom-")
+            }.build()
             try {
-                streamFrom(client, request, part, startBytes, onProgress)
+                streamFrom(channels[channel], request, part, resumeFrom, onProgress)
                 return
             } catch (failure: DownloadConnectFailure) {
-                lastFailure = failure.message
                 // Only a connect failure justifies switching channels, and only while no bytes
                 // have been written. HTTP errors and mid-stream failures must not be replayed.
-                val canFallback = index < attempts.lastIndex && part.length() <= startBytes
-                if (!canFallback) throw DownloadException(failure.message ?: "download failed")
+                val written = if (part.isFile) part.length() else 0L
+                if (channel < channels.lastIndex && written <= resumeFrom) {
+                    channel++
+                    continue
+                }
+                throw DownloadException(failure.message ?: "download failed")
+            } catch (stall: DownloadRetryable) {
+                if (++retries > MID_STREAM_RETRIES) {
+                    throw DownloadException(stall.message ?: "download failed")
+                }
+                // Continue from what is already on disk instead of restarting the file.
+                resumeFrom = if (part.isFile) part.length() else 0L
+                delay(RETRY_BACKOFF_MILLIS * retries)
             }
         }
-        throw DownloadException(lastFailure ?: "download failed")
     }
 
     private suspend fun streamFrom(
@@ -320,18 +417,21 @@ internal class ApkDownloader(
                 var lastReported = copied
                 var lastReportedAt = nowMillis()
                 while (true) {
+                    // See readSegment(): a blocking read cannot observe cancellation by itself.
+                    currentCoroutineContext().ensureActive()
                     val read = try {
                         source.read(buffer)
-                    } catch (error: java.io.InterruptedIOException) {
-                        // A proxy that accepts the connection but never delivers a byte used to
-                        // stall for the whole read timeout. With zero new bytes it is a connect
-                        // failure, so downloadInto() can fall back to the direct channel.
+                    } catch (error: InterruptedIOException) {
+                        // Nothing arrived for the whole stall window. With zero new bytes the
+                        // channel itself is the problem; otherwise keep the bytes and resume.
                         if (copied <= startBytes) {
                             throw DownloadConnectFailure(
                                 "the download stalled before any bytes arrived: ${error.message}",
                             )
                         }
-                        throw error
+                        throw DownloadRetryable(
+                            "the connection stopped after $copied bytes: ${error.message}",
+                        )
                     }
                     if (read == -1) break
                     file.write(buffer, 0, read)
@@ -348,7 +448,7 @@ internal class ApkDownloader(
             }
             onProgress(UpdateProgress(copied, totalBytes))
             if (totalBytes != null && totalBytes > 0 && copied != totalBytes) {
-                throw DownloadException("truncated download: received $copied of $totalBytes bytes")
+                throw DownloadRetryable("truncated download: received $copied of $totalBytes bytes")
             }
         }
     }
@@ -417,7 +517,15 @@ internal class ApkDownloader(
     companion object {
         private const val IO_BUFFER_BYTES = 64 * 1024
         private const val CONNECT_TIMEOUT_SECONDS = 10L
-        private const val READ_TIMEOUT_SECONDS = 120L
+
+        /** Idle window for a single stream: no byte for this long means the socket is dead. */
+        private const val READ_TIMEOUT_SECONDS = 30L
+
+        /** Segments are retried often and cheaply, so they get a tighter stall window. */
+        private const val SEGMENT_READ_TIMEOUT_SECONDS = 15L
+        private const val SEGMENT_MAX_ATTEMPTS = 4
+        private const val MID_STREAM_RETRIES = 2
+        private const val RETRY_BACKOFF_MILLIS = 500L
         private const val KEEP_ALIVE_MINUTES = 5L
         private const val DEFAULT_PROGRESS_INTERVAL_BYTES = 256L * 1024
         private const val DEFAULT_PROGRESS_INTERVAL_MILLIS = 200L

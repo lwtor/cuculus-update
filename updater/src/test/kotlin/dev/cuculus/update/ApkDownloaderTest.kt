@@ -2,6 +2,8 @@ package dev.cuculus.update
 
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -253,6 +255,156 @@ class ApkDownloaderTest {
             assertFalse(File(folder, "update.apk.part").exists())
             // At least one rejected segment attempt, then the plain stream fetches from zero.
             assertTrue("expected a segment attempt plus a fallback", server.requestCount >= 2)
+        }
+    }
+
+    @Test
+    fun `reconnects a stalled segment and continues from its last byte`() = runTest {
+        val bytes = apkBytes(2048)
+        MockWebServer().use { server ->
+            server.dispatcher = object : mockwebserver3.Dispatcher() {
+                private val servedShortFirst = java.util.concurrent.atomic.AtomicBoolean(false)
+
+                override fun dispatch(request: mockwebserver3.RecordedRequest): MockResponse {
+                    val range = request.headers["Range"]
+                        ?: return MockResponse.Builder().body(Buffer().write(bytes)).build()
+                    val spec = range.removePrefix("bytes=")
+                    val (from, to) = spec.split("-").map { it.toLong() }
+                    // The server promises 0-1023 but delivers only the first 512 bytes and closes
+                    // the connection — the "stuck at 80%" failure, reproduced deterministically.
+                    val short = spec == "0-1023" && servedShortFirst.compareAndSet(false, true)
+                    val last = if (short) 511L else to
+                    return MockResponse.Builder()
+                        .code(206)
+                        .addHeader("Content-Range", "bytes $from-$to/${bytes.size}")
+                        .body(Buffer().write(bytes.copyOfRange(from.toInt(), last.toInt() + 1)))
+                        .build()
+                }
+            }
+            server.start()
+            val folder = tmp.newFolder()
+            val target = File(folder, "update.apk")
+            val downloader = ApkDownloader(
+                OkHttpClient(),
+                progressIntervalBytes = 1024,
+                segmentCount = 2,
+                minSegmentTotalBytes = 1024,
+            )
+
+            val result = downloader.download(
+                server.url("/release.apk").toString(),
+                target,
+                bytes.size.toLong(),
+            )
+
+            assertEquals(target, result)
+            assertTrue(target.readBytes().contentEquals(bytes))
+            assertFalse(File(folder, "update.apk.part").exists())
+            val ranges = (1..server.requestCount).map { server.takeRequest().headers["Range"] }
+            // The retry must ask for exactly the missing half, not repeat the whole segment:
+            // re-requesting 0-1023 would download those 512 bytes twice and inflate the counter.
+            assertTrue(
+                "the retry must resume at 512 instead of restarting the segment: $ranges",
+                ranges.contains("bytes=512-1023"),
+            )
+            assertFalse(
+                "the segment must not be re-fetched from its start: $ranges",
+                ranges.count { it == "bytes=0-1023" } > 1,
+            )
+        }
+    }
+
+    @Test
+    fun `resumes a single stream that ends early instead of restarting`() = runTest {
+        val bytes = apkBytes(4096)
+        MockWebServer().use { server ->
+            server.dispatcher = object : mockwebserver3.Dispatcher() {
+                override fun dispatch(request: mockwebserver3.RecordedRequest): MockResponse {
+                    val range = request.headers["Range"]
+                    if (range == null) {
+                        // The first attempt announces the whole file but delivers only half of it.
+                        return MockResponse.Builder()
+                            .code(206)
+                            .addHeader("Content-Range", "bytes 0-${bytes.size - 1}/${bytes.size}")
+                            .body(Buffer().write(bytes.copyOfRange(0, 2048)))
+                            .build()
+                    }
+                    val parts = range.removePrefix("bytes=").split("-")
+                    val from = parts[0].toLong()
+                    val requested = parts.getOrNull(1)?.takeIf { it.isNotEmpty() }?.toLong()
+                    val last = (requested ?: (bytes.size - 1).toLong()).coerceAtMost(bytes.size - 1L)
+                    return MockResponse.Builder()
+                        .code(206)
+                        .addHeader("Content-Range", "bytes $from-$last/${bytes.size}")
+                        .body(Buffer().write(bytes.copyOfRange(from.toInt(), last.toInt() + 1)))
+                        .build()
+                }
+            }
+            server.start()
+            val folder = tmp.newFolder()
+            val target = File(folder, "update.apk")
+            val downloader = ApkDownloader(OkHttpClient(), progressIntervalBytes = 1024)
+
+            // No size hint, so the single-stream path is used.
+            val result = downloader.download(server.url("/release.apk").toString(), target)
+
+            assertEquals(target, result)
+            assertTrue(target.readBytes().contentEquals(bytes))
+            assertFalse(File(folder, "update.apk.part").exists())
+            val ranges = (1..server.requestCount).map { server.takeRequest().headers["Range"] }
+            assertTrue(
+                "the single stream must resume at 2048 instead of restarting: $ranges",
+                ranges.contains("bytes=2048-"),
+            )
+        }
+    }
+
+    @Test
+    fun `cancelling the caller aborts the transfer instead of finishing it`() = runTest {
+        val bytes = apkBytes(1024 * 1024)
+        MockWebServer().use { server ->
+            server.dispatcher = object : mockwebserver3.Dispatcher() {
+                override fun dispatch(request: mockwebserver3.RecordedRequest): MockResponse {
+                    val (from, to) = request.headers["Range"]!!
+                        .removePrefix("bytes=")
+                        .split("-")
+                        .map { it.toLong() }
+                    return MockResponse.Builder()
+                        .code(206)
+                        .addHeader("Content-Range", "bytes $from-$to/${bytes.size}")
+                        .body(Buffer().write(bytes.copyOfRange(from.toInt(), to.toInt() + 1)))
+                        .build()
+                }
+            }
+            server.start()
+            val folder = tmp.newFolder()
+            val target = File(folder, "update.apk")
+            val part = File(folder, "update.apk.part")
+            val downloader = ApkDownloader(
+                OkHttpClient(),
+                progressIntervalBytes = 1024,
+                segmentCount = 4,
+                minSegmentTotalBytes = 1024,
+            )
+
+            var job: Job? = null
+            val reported = java.util.concurrent.atomic.AtomicInteger()
+            job = launch {
+                downloader.download(server.url("/release.apk").toString(), target, bytes.size.toLong()) {
+                    // Cancel from inside the callback: the blocking socket reads cannot see the
+                    // cancellation by themselves, so this proves the per-buffer check works.
+                    reported.incrementAndGet()
+                    job?.cancel()
+                }
+            }
+            job.join()
+
+            assertTrue("the transfer must have started before the cancel", reported.get() > 0)
+            assertTrue("the job must report cancellation", job.isCancelled)
+            // A cancelled segmented transfer leaves holes in the preallocated file, so it must be
+            // removed rather than left to be mistaken for a resumable .part.
+            assertFalse("the preallocated .part must be removed", part.exists())
+            assertFalse("a cancelled download must not produce an APK", target.exists())
         }
     }
 
