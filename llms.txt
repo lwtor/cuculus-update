@@ -22,7 +22,7 @@
 - [docs/07-migration.md](docs/07-migration.md): 进阶——从 venera-native `data/update` 迁移到本 SDK 的完整映射表、分步流程、阶段约束（旧代码先不删）、`AboutViewModel` 改造示例、接入验证清单。
 - [docs/08-troubleshooting.md](docs/08-troubleshooting.md): 进阶——无更新/NoInstallableAsset、下载卡住、解析软件包失败、FileProvider authority 冲突、通知不显示、WorkManager 不启动、R8 崩溃、GitHub 403、tag/asset 解析失败、代理、版本回退；每条给检查命令/日志线索/修复方式。
 - [docs/10-design-rationale.md](docs/10-design-rationale.md): 进阶——设计缘由（整理自 venera-native 设计文档）：结论、六处项目耦合、AAR 构建缺口、目标设计、迁移路径、风险与明确不做的事。
-- [docs/11-testing-and-build.md](docs/11-testing-and-build.md): 进阶——环境要求、完整命令清单、manifest 合并验证、真机验证下载与安装、mavenLocal 接入演练、23 个单测逐项覆盖说明、CI 建议。
+- [docs/11-testing-and-build.md](docs/11-testing-and-build.md): 进阶——环境要求、完整命令清单、manifest 合并验证、真机验证下载与安装、mavenLocal 接入演练、24 个单测逐项覆盖说明、CI 建议。
 
 ## Notes
 

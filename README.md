@@ -197,9 +197,18 @@ publishes this demo's own APKs; `check()` is called with this app's own
 `BuildConfig.VERSION_CODE`. An end-to-end run needs two builds: install the older one, publish a
 newer one as a **normal** release (not a prerelease), then 检查更新 → 下载最新版本 → 安装 upgrades
 the app in place. Release assets are named `cuculus-update-demo-v<name>-<versionCode>.apk`, e.g.
-`cuculus-update-demo-v1.2.6-9.apk` → versionCode `9`, so the default `AssetNameSuffix()` needs no
+`cuculus-update-demo-v1.2.8-11.apk` → versionCode `11`, so the default `AssetNameSuffix()` needs no
 custom resolver. Both builds share the debug keystore, so the system installer can replace the
 running app.
+
+**The demo's progress bar is driven by the inline download path.** The 下载最新版本 button calls
+`download(asset, onProgress)` on `Dispatchers.IO` and hops back to the main thread for each
+`UpdateProgress`, so the ProgressBar reflects real bytes received. It deliberately does **not** use
+`downloadInForeground()` / `observeForegroundProgress()`: a screen that only shows progress while
+open should not depend on foreground-service launch permission, notification channels or WorkManager
+progress persistence — any of which can leave the UI pinned at 0%. Foreground download remains an SDK
+capability for "keep downloading after the user leaves"; see
+[§2 of troubleshooting](docs/08-troubleshooting.md).
 
 **Downloading is deliberately not version-gated.** 检查更新 only *displays* the comparison; the
 下载最新版本 button calls `Updater.latestInstallableAsset()`, which fetches the latest release's
@@ -210,7 +219,7 @@ update *badge* on `check()` / `checkAndPrefetch()` — the two concerns are sepa
 [§1.4 of the API reference](docs/03-api-reference.md).
 
 ```bash
-sh gradlew :updater:testDebugUnitTest --console=plain   # 23 unit tests
+sh gradlew :updater:testDebugUnitTest --console=plain   # 24 unit tests
 sh gradlew :updater:assembleRelease --console=plain
 sh gradlew :sample:assembleDebug --console=plain
 sh gradlew :updater:publishToMavenLocal --console=plain # dev.cuculus:cuculus-update:<updaterSdkVersion>

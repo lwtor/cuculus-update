@@ -75,12 +75,13 @@ adb logcat -v brief | grep -iE 'cuculus|UpdateDownload|WorkManager|WM-|DownloadE
   # 缓存里的 .part 是否在增长
   adb shell run-as <pkg> ls -l cache/updater/<scope>/     # 多次执行对比 .part 大小
   ```
-- **日志线索**：`Updater.downloadInForeground()` 内部 `first { infos.isNotEmpty() && infos.all { it.state.isFinished } }` 会一直挂起直到 worker 进入终态；worker 约束是 `NetworkType.CONNECTED`。`callTimeout(0)`（无整体超时）+ `readTimeout(120s)`，大文件或慢代理下进度看起来停滞属正常。
+- **日志线索**：进度停在 0 通常不是「下载慢」，而是 **UI 拿不到字节级进度**。四类根因按出现频率排查：① `setForeground()` 被系统拒绝后 worker 无限重试 → `downloadInForeground()` 永远等不到终态；② 最后一次 `setProgressAsync()` 未 await，或 `observeForegroundProgress()` 用 `lastOrNull()` 读到历史 WorkInfo 的旧进度；③ `getWorkInfosForUniqueWorkFlow()` 的历史终态让 `all { isFinished }` 立刻成立，等错了 work；④ 陈旧的 `.part` 让服务端对 `Range` 返回 416，或代理接受连接却零字节，旧逻辑要等满 120s `readTimeout`。SDK 已分别修为：`setForeground` 移入 `try` 并转 `Result.failure`、结束时 `setProgress(1f)` 落库、按本次 `requestId` 等待/读进度、416 删 `.part` 从头重下、零字节 stall 视为连接失败立刻切直连（`connectTimeout` 10s）。
 - **修复方式**：
   1. 确认设备联网且 `CONNECTIVITY` 约束可满足；切到稳定网络重试；
   2. 系统代理不稳定时 SDK 会在「连接失败且零字节」时回退直连（[06 §5](06-behavior-and-edge-cases.md)），若代理可用但极慢，把共享 `OkHttpClient` 通过 `Updater.create(..., httpClient)` 传入以便复用（或反之不传，让 SDK 用默认 client）；
   3. 确认没有同时跑 inline `download()` 与 `checkAndPrefetch()` 对同一 asset 并发写（[06 §12](06-behavior-and-edge-cases.md)）；
-  4. UI 把「下载中」做成可等待态，不要自己设短超时杀掉协程；用户可点「取消」后重试。
+  4. **只想「点一下就看到下载」的页面（含本仓库 `:sample`）不要走前台链路**：在 `Dispatchers.IO` 上用 `download(asset, onProgress)`，`onProgress` 里切回主线程更新 View，绕过 FGS 权限 / 通知渠道 / WorkManager 进度持久化（[03 §12.3](03-api-reference.md)）；
+  5. UI 把「下载中」做成可等待态，不要自己设短超时杀掉协程；用户可点「取消」后重试。
 
 ## 3. 安装报「解析软件包时出现问题」
 

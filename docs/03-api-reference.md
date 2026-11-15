@@ -173,22 +173,25 @@ latestRelease(owner, repository)
 ### 2.3 `downloadInForeground(asset)` 细节
 
 1. `targetName = sanitize(asset.name)`（非 `[A-Za-z0-9._-]` 字符替换为 `_`）。
-2. `enqueueUniqueWork("<scope>.download", REPLACE, OneTimeWorkRequest)`，约束 `NetworkType.CONNECTED`。
-3. 挂起直到该 unique work 全部 `isFinished`。
+2. `enqueueUniqueWork("<scope>.download", REPLACE, OneTimeWorkRequest)`，约束 `NetworkType.CONNECTED`；`UpdateWorkScheduler.start()` 返回**本次** `request.id`（`UUID`）。
+3. 挂起直到 **这个 id** 的 `WorkInfo` 进入终态。不要写成 `infos.all { it.state.isFinished }`：`REPLACE` 会留下同名 unique work 的历史记录，旧终态会让等待立刻满足、读到上一次下载的输出。
 4. `SUCCEEDED` 且 `OUTPUT_FILE_PATH` 非空 → `File(path)`；否则抛 `DownloadException(OUTPUT_ERROR ?: "update download did not complete (<state>)")`。
 
-**取消、失败、进程被杀后重启导致 worker 未完成，都以抛 `DownloadException` 表达，不会返回 `null` 或空 `File`。**
+**取消、失败、进程被杀后重启导致 worker 未完成，都以抛 `DownloadException` 表达，不会返回 `null` 或空 `File`。** worker 内部 `setForeground()` 若被系统拒绝（Android 12+/14+ 的 FGS 限制），也会转成 `Result.failure(OUTPUT_ERROR)` 而不是无限重试——否则调用方会永远挂在 0% 进度上。
 
 ### 2.4 `observeForegroundProgress()` 细节
 
 `WorkInfo.progress.getFloat(PROGRESS_KEY, -1f)` → `<0` 视为 `null` → `distinctUntilChanged()`。
 - 语义：`0f..1f` 表示已下载比例，`null` 表示尚未解析到进度。
+- **优先读本次 `requestId` 对应的 `WorkInfo`**；只有本次 id 尚未出现时才退回 `lastOrNull()`，避免 unique work 的历史记录把旧进度盖到 UI 上。
 - 它是**独立 Flow**：与 `downloadInForeground()` 的调用先后无关，可单独起协程收集；主下载协程结束时应 `cancel()` 掉它（见 `02-integration.md`）。
+- 只要页面在当前进程内显示进度、不需要「离开页面仍继续下载」，用 `download(asset, onProgress)` 更简单可靠（§12.3）。
 
 ### 2.5 `download(asset, onProgress)` 细节
 
 - 写入 `<target>.apk.part`；若已存在则发 `Range: bytes=<n>-`，`206` 续写、`200` 重写。
 - 每约 256 KiB 触发一次 `onProgress(UpdateProgress(bytesDownloaded, totalBytes))`，结束再触发一次。
+- HTTP `416`（`.part` 与新 asset 不匹配，常见于 asset 被替换或旧 worker 留下过期续传点）→ 删掉 `.part` 并从 0 重下**一次**；`connectTimeout` 为 10s，代理接受连接却零字节时视为连接失败并回退直连（[06 §5](06-behavior-and-edge-cases.md)）。
 - 完成前校验 ZIP 头 `PK\x03\x04`；失败删 `.part` 并抛 `DownloadException("the downloaded file is not an Android package")`。
 - 截断（已知总长但接收不足）→ `DownloadException`。
 - `onProgress` 默认 `{}`；省略时收不到进度但仍能下载。
@@ -434,7 +437,7 @@ class UpdateDownloadWorker(
 ```
 
 - **不要直接实例化或调用**。它公开只是因为 WorkManager 按持久化类名反射创建；`consumer-rules.pro` 保留了这个两参构造在 R8 混淆下的存活。
-- `doWork()` 读 `inputData` → `setForeground` → `ApkDownloader(WorkerHttp.resolve()).download(...)` → `setProgressAsync(PROGRESS_KEY)` → `Result.success(OUTPUT_FILE_PATH)` / `Result.failure(OUTPUT_ERROR)`；`CancellationException` 重新抛出。
+- `doWork()` 读 `inputData` → **`try` 内** `setForeground`（被系统拒绝时返回 `Result.failure(OUTPUT_ERROR)`，避免 WorkManager 无限重试）→ `setProgress(0f)` → `ApkDownloader(WorkerHttp.resolve()).download(...)`（普通回调里用 `setProgressAsync(PROGRESS_KEY)`）→ 结束前 `setProgress(1f)` **await 落库** → `Result.success(OUTPUT_FILE_PATH)` / `Result.failure(OUTPUT_ERROR)`；`CancellationException` 重新抛出。
 - companion object 常量（`public`，内部协议用；消费者不要依赖）：
 
 | 常量 | 值 |
@@ -500,6 +503,15 @@ class UpdateDownloadWorker(
 ### 12.3 `download()` 与 `downloadInForeground()` 的关系
 
 二者写入**同一个目录、同一个文件名**（都经 `updaterCacheDir()` + `sanitizeAssetFileName()`），共用同一个 `.apk.part` 续传点；区别只在执行体与进度通道（见 `01-architecture.md` §4）。
+
+| | `download(asset, onProgress)` | `downloadInForeground(asset)` + `observeForegroundProgress()` |
+|---|---|---|
+| 执行体 | 当前协程（放 `Dispatchers.IO`） | WorkManager `CoroutineWorker` + 前台服务 |
+| 进度 | `UpdateProgress`（真实字节数 / 总长） | `Flow<Float?>`（WorkManager 持久化的比例） |
+| 额外依赖 | 无 | FGS 能否启动、`POST_NOTIFICATIONS`、通知渠道 |
+| 适用 | 页面在前台显示进度、Demo / 调试页、强制重下 | 离开页面 / 锁屏后仍要继续下载 |
+
+**只要页面当前可见，优先 `download()`**：前台链路任一环节不满足都会表现为「进度一直是 0%」，而不是一个可诊断的下载错误。二者不要同时对同一 asset 并发写（[06 §12](06-behavior-and-edge-cases.md)）。
 
 ---
 

@@ -34,11 +34,11 @@
 | `UpdateNotifier` | 通知渠道、前台通知 | 通用（文案需可配） |
 | `SelfUpdateService` | 门面：检查、预下载、前台下载、安装、缓存 | 通用（构造参数需配置对象化） |
 
-测试覆盖 **23 项**，分布在四块容易出错的地方（`ApkDownloaderTest` 6 + `GitHubReleaseApiTest` 3 + `ReleaseSelectionTest` 10 + `UpdateStateStoreTest` 4 = 23）：
+测试覆盖 **24 项**，分布在四块容易出错的地方（`ApkDownloaderTest` 7 + `GitHubReleaseApiTest` 3 + `ReleaseSelectionTest` 10 + `UpdateStateStoreTest` 4 = 24）：
 
 - 选包 / 版本号解析（`ReleaseSelectionTest`，10 项）；
 - GitHub JSON 与错误映射（`GitHubReleaseApiTest`，3 项）；
-- 下载语义（`ApkDownloaderTest`，6 项：续传、非 APK 拒绝、HTTP 错误零写入、陈旧文件覆盖、失败保留 `.part`）；
+- 下载语义（`ApkDownloaderTest`，7 项：续传、非 APK 拒绝、HTTP 错误零写入、陈旧文件覆盖、416 陈旧 `.part` 从头重下、失败保留 `.part`）；
 - 已下载版本 → APK 路径的持久化与脏记录清理（`UpdateStateStoreTest`，4 项）。
 
 这四块是有契约的，抽取时可以放心冻结。逐项说明见 [11 篇](11-testing-and-build.md)。
@@ -134,7 +134,7 @@ authority 用 `${applicationId}.updater` 而不是写死字符串，保证「man
 4. `:app` 侧：`AppGraph` 改为传配置对象；`AppRoot` / `feature:profile` 只改 import。
 5. 删除 app 里重复的权限、`FileProvider` 块与 `file_paths.xml`。
 
-行为不变，`data/update` 的 23 项测试全部保留。
+行为不变，源项目 `data/update` 的 23 项测试全部保留（与本仓库 SDK 侧的 24 例是两个不同测试集）。
 
 > **重要阶段约束（现状）**：原项目代码**目前保持不动**，旧 `data/update` **尚未删除**，必须等通过本 SDK 接入并验证无异常后才能删旧代码。完整映射表、分步流程与接入验证清单见 [07 篇](07-migration.md)。
 
