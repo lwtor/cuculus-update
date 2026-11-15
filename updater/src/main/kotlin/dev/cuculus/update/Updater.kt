@@ -35,6 +35,10 @@ class Updater private constructor(
 
     private val mutableStatus = MutableStateFlow<UpdateStatus>(UpdateStatus.Idle)
 
+    /** The foreground download this process started, so progress is read from the right work. */
+    @Volatile
+    private var currentDownloadId: java.util.UUID? = null
+
     /** The process-wide update state, updated by [checkAndPrefetch]. */
     val status: StateFlow<UpdateStatus> = mutableStatus.asStateFlow()
 
@@ -79,15 +83,17 @@ class Updater private constructor(
 
     override suspend fun downloadInForeground(asset: ReleaseAsset): File {
         val targetName = ReleaseSelection.sanitizeAssetFileName(asset.name)
-        scheduler.start(appContext, asset.downloadUrl, targetName, config.scope, config.strings)
+        val requestId = scheduler.start(appContext, asset.downloadUrl, targetName, config.scope, config.strings)
+        currentDownloadId = requestId
 
-        // Wait until the worker either succeeds (reading the output path) or stops in a terminal
-        // failure state, then surface it to the caller as an exception so the UI can map it to a
-        // download problem instead of silently installing a missing file.
-        val manager = WorkManager.getInstance(appContext)
-        val workInfo = manager.getWorkInfosForUniqueWorkFlow(scheduler.workName)
-            .first { infos -> infos.isNotEmpty() && infos.all { it.state.isFinished } }
-        val finished = workInfo.last()
+        // Wait for THIS request only. getWorkInfosForUniqueWorkFlow() also emits historic records
+        // with the same unique name (REPLACE keeps them), so `all { isFinished }` could be
+        // satisfied immediately by a stale record whose output data belongs to an older download.
+        // Surface a terminal failure as an exception so the caller never installs a missing file.
+        val infos = WorkManager.getInstance(appContext)
+            .getWorkInfosForUniqueWorkFlow(scheduler.workName)
+            .first { list -> list.any { it.id == requestId && it.state.isFinished } }
+        val finished = infos.first { it.id == requestId }
         if (finished.state == WorkInfo.State.SUCCEEDED) {
             val path = finished.outputData.getString(UpdateDownloadWorker.OUTPUT_FILE_PATH)
             if (!path.isNullOrBlank()) return File(path)
@@ -101,7 +107,10 @@ class Updater private constructor(
         WorkManager.getInstance(appContext)
             .getWorkInfosForUniqueWorkFlow(scheduler.workName)
             .map { infos ->
-                infos.lastOrNull()
+                // Prefer the work this process actually started; a unique-work flow also carries
+                // historic records whose stale progress would otherwise win via lastOrNull().
+                val id = currentDownloadId
+                (infos.firstOrNull { it.id == id } ?: infos.lastOrNull())
                     ?.progress
                     ?.getFloat(UpdateDownloadWorker.PROGRESS_KEY, -1f)
                     ?.takeIf { it >= 0f }

@@ -21,6 +21,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The whole integration: the [Updater] is built once in [SampleApp] from an attached Application
@@ -159,9 +160,15 @@ class MainActivity : Activity() {
         }
     }
 
-    /** No version gate: always fetch and download the APK from the latest release. */
+    /**
+     * No version gate, and no WorkManager/FGS dependency: stream the APK inline with real
+     * byte-level progress. The foreground worker is a separate SDK capability (it keeps downloading
+     * after the screen is left), but a demo must not depend on foreground-service permissions,
+     * notification channels or WorkManager progress persistence just to show a working download.
+     */
     private fun downloadUpdate() {
         downloadButton.isEnabled = false
+        progressBar.progress = 0
         showStatus("正在获取最新版本…")
         scope.launch {
             // latestInstallableAsset() deliberately skips version comparison and versionCode
@@ -181,25 +188,34 @@ class MainActivity : Activity() {
             }
             showStatus("开始下载 ${asset.name}（不校验版本号）")
 
-            // A foreground download survives leaving this screen; its progress is published by
-            // WorkManager, so the observer can run independently of the download coroutine.
-            val progressJob = launch {
-                updater.observeForegroundProgress().collect { fraction ->
-                    val percent = ((fraction ?: 0f) * 100).toInt()
-                    progressBar.progress = percent
-                    showStatus("下载中 $percent%")
-                }
-            }
             try {
-                val apk = updater.downloadInForeground(asset)
+                val apk = withContext(Dispatchers.IO) {
+                    updater.download(asset) { progress ->
+                        val percent = ((progress.fraction ?: 0f) * 100).toInt().coerceIn(0, 100)
+                        // onProgress is a plain callback on the IO dispatcher; hop back to Main
+                        // before touching any View.
+                        scope.launch {
+                            progressBar.progress = percent
+                            showStatus("下载中 $percent%（${progress.bytesDownloaded / 1024} KB）")
+                        }
+                    }
+                }
                 downloadedApk = apk
                 installButton.isEnabled = true
                 progressBar.progress = 100
                 showStatus("下载完成：${apk.name}（${apk.length() / 1024} KB）")
+                logText.text = buildString {
+                    appendLine("asset.name = ${asset.name}")
+                    appendLine("asset.sizeBytes = ${asset.sizeBytes}")
+                    appendLine("asset.downloadUrl = ${asset.downloadUrl}")
+                    appendLine()
+                    appendLine("downloaded to = ${apk.absolutePath}")
+                    appendLine("bytes = ${apk.length()}")
+                }
             } catch (error: Exception) {
                 showStatus("下载失败：${error.message}")
+                logText.text = error.toString()
             } finally {
-                progressJob.cancel()
                 downloadButton.isEnabled = true
             }
         }

@@ -27,13 +27,14 @@ internal class UpdateWorkScheduler(val workName: String) {
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
 
+    /** Returns the id of THIS request, so the caller can await exactly it (not a historic record). */
     fun start(
         context: Context,
         downloadUrl: String,
         targetName: String,
         scope: String,
         strings: UpdaterStrings,
-    ) {
+    ): java.util.UUID {
         val request = OneTimeWorkRequestBuilder<UpdateDownloadWorker>()
             .setInputData(
                 workDataOf(
@@ -50,6 +51,7 @@ internal class UpdateWorkScheduler(val workName: String) {
             .build()
         WorkManager.getInstance(context.applicationContext)
             .enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, request)
+        return request.id
     }
 
     fun cancel(context: Context): Operation =

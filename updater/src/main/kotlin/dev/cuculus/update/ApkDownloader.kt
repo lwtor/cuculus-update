@@ -18,6 +18,9 @@ import okhttp3.Request
  */
 private class DownloadConnectFailure(message: String) : Exception(message)
 
+/** The server rejected our Range: the cached `.part` no longer matches this asset. */
+private class StalePartException : Exception("stale partial download")
+
 /** Byte-level progress of a download; [fraction] is null while the total size is unknown. */
 data class UpdateProgress(val bytesDownloaded: Long, val totalBytes: Long?) {
     val fraction: Float?
@@ -67,7 +70,15 @@ internal class ApkDownloader(
         // length instead of starting over. The one exception is a body that is not an APK at all —
         // that is garbage (e.g. an HTML error page served as 200), and resuming it would only
         // append valid bytes to junk, so it is discarded below.
-        downloadInto(url, part, startBytes, onProgress)
+        try {
+            downloadInto(url, part, startBytes, onProgress)
+        } catch (_: StalePartException) {
+            // 416 means the .part is stale — typically the release asset was replaced with a
+            // smaller file, or a previous foreground worker left a full-length .part behind.
+            // Discard it and fetch from byte zero once, instead of failing forever.
+            part.delete()
+            downloadInto(url, part, 0L, onProgress)
+        }
         try {
             verifyApkHeader(part)
         } catch (error: DownloadException) {
@@ -123,6 +134,7 @@ internal class ApkDownloader(
         }
         response.use {
             val code = it.code
+            if (code == 416 && startBytes > 0) throw StalePartException()
             if (code != 200 && code != 206) throw DownloadException("download failed with HTTP $code")
 
             val body = it.body ?: throw DownloadException("download returned an empty body")
@@ -137,7 +149,19 @@ internal class ApkDownloader(
                 val buffer = ByteArray(IO_BUFFER_BYTES)
                 var lastReported = copied
                 while (true) {
-                    val read = source.read(buffer)
+                    val read = try {
+                        source.read(buffer)
+                    } catch (error: java.io.InterruptedIOException) {
+                        // A proxy that accepts the connection but never delivers a byte used to
+                        // stall for the whole read timeout. With zero new bytes it is a connect
+                        // failure, so downloadInto() can fall back to the direct channel.
+                        if (copied <= startBytes) {
+                            throw DownloadConnectFailure(
+                                "the download stalled before any bytes arrived: ${error.message}",
+                            )
+                        }
+                        throw error
+                    }
                     if (read == -1) break
                     file.write(buffer, 0, read)
                     copied += read
@@ -185,7 +209,7 @@ internal class ApkDownloader(
 
     companion object {
         private const val IO_BUFFER_BYTES = 64 * 1024
-        private const val CONNECT_TIMEOUT_SECONDS = 30L
+        private const val CONNECT_TIMEOUT_SECONDS = 10L
         private const val READ_TIMEOUT_SECONDS = 120L
         private const val DEFAULT_PROGRESS_INTERVAL_BYTES = 256L * 1024
         // APK files are ZIP archives and always start with a local file header.

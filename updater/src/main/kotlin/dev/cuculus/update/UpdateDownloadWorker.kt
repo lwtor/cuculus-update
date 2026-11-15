@@ -39,12 +39,21 @@ class UpdateDownloadWorker(
             ReleaseSelection.sanitizeAssetFileName(targetName),
         )
 
-        setForeground(notifier.foregroundInfo(0f))
+        // setForeground() can legitimately throw on Android 12+/14+ (background FGS start not
+        // allowed, denied notification permission, dataSync restrictions). It used to sit outside
+        // try: the worker then threw, WorkManager retried it indefinitely, and callers waiting for
+        // a terminal state hung forever with progress stuck at 0%. Convert it into a normal failed
+        // Result carrying a readable reason instead.
         return try {
+            setForeground(notifier.foregroundInfo(0f))
+            setProgress(workDataOf(PROGRESS_KEY to 0f))
             downloader.download(downloadUrl, target) { progress ->
-                val fraction = progress.fraction ?: 0f
-                setProgressAsync(workDataOf(PROGRESS_KEY to fraction))
+                // onProgress is a plain callback, so the async bridge is used here...
+                setProgressAsync(workDataOf(PROGRESS_KEY to (progress.fraction ?: 0f)))
             }
+            // ...and awaited here, so the terminal progress is guaranteed to be persisted before
+            // the worker finishes (an unawaited final setProgressAsync could be lost).
+            setProgress(workDataOf(PROGRESS_KEY to 1f))
             Result.success(workDataOf(OUTPUT_FILE_PATH to target.absolutePath))
         } catch (failure: Exception) {
             // Cancellation of the worker is reported by WorkManager; a failed download is a failure

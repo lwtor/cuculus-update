@@ -126,6 +126,30 @@ class ApkDownloaderTest {
     }
 
     @Test
+    fun `retries from zero when the server rejects a stale range`() = runTest {
+        MockWebServer().use { server ->
+            server.start()
+            val bytes = apkBytes(2048)
+            // A previous foreground worker left an over-long .part (e.g. the asset was replaced).
+            server.enqueue(MockResponse.Builder().code(416).body("range not satisfiable").build())
+            server.enqueue(MockResponse.Builder().body(Buffer().write(bytes)).build())
+            val folder = tmp.newFolder()
+            val target = File(folder, "update.apk")
+            File(folder, "update.apk.part").writeBytes(ByteArray(4096))
+
+            val result = downloader.download(server.url("/release.apk").toString(), target)
+
+            assertEquals(target, result)
+            assertTrue(target.readBytes().contentEquals(bytes))
+            assertFalse(File(folder, "update.apk.part").exists())
+            val first = server.takeRequest()
+            val second = server.takeRequest()
+            assertEquals("bytes=4096-", first.headers["Range"])
+            assertEquals(null, second.headers["Range"])
+        }
+    }
+
+    @Test
     fun `keeps the part file when the download fails mid-transfer`() = runTest {
         MockWebServer().use { server ->
             server.start()
