@@ -62,7 +62,7 @@ data class UpdaterConfig(
 ```kotlin
 UpdaterConfig(
     owner = "lwtor",
-    repository = "venera-native",
+    repository = "your-app",              // ★ 发布「本 App APK」的仓库，不要照抄示例值
     fileProviderAuthority = "$packageName.updater",   // ✅ 确定写法
 )
 ```
@@ -123,7 +123,7 @@ val stableUpdater = Updater.create(
     applicationContext,
     UpdaterConfig(
         owner = "lwtor",
-        repository = "venera-native",
+        repository = "your-app",              // ★ 发布「本 App APK」的仓库，不要照抄示例值
         fileProviderAuthority = "$packageName.updater",
         scope = "stable",
         versionResolver = ReleaseVersionResolver.Or(
@@ -137,7 +137,7 @@ val betaUpdater = Updater.create(
     applicationContext,
     UpdaterConfig(
         owner = "lwtor",
-        repository = "venera-native-beta",
+        repository = "your-app-beta",
         fileProviderAuthority = "$packageName.updater",   // 同一个 FileProvider 足够：cache-path 覆盖所有 scope
         scope = "beta",
     ),
@@ -233,7 +233,7 @@ val resolver = ReleaseVersionResolver { releaseTag, apkAssetName ->
 
 val config = UpdaterConfig(
     owner = "lwtor",
-    repository = "venera-native",
+    repository = "your-app",              // ★ 发布「本 App APK」的仓库，不要照抄示例值
     fileProviderAuthority = "$packageName.updater",
     versionResolver = resolver,
 )

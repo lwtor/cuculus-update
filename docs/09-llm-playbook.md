@@ -489,8 +489,8 @@ import dev.cuculus.update.UpdaterConfig
 import dev.cuculus.update.UpdaterStrings
 
 UpdaterConfig(
-    owner = "lwtor",
-    repository = "venera-native",
+    owner = "your-org",
+    repository = "your-app",              // ★ 发布「本 App APK」的仓库，不要照抄示例值
     fileProviderAuthority = "$packageName.updater",
     strings = UpdaterStrings(
         channelName = "版本更新",
