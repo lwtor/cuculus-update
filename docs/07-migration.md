@@ -170,6 +170,10 @@ init {
 
 新（等价改造，阶段 B 才落地）：
 
+> 注意：下面是「把原 ViewModel 里的创建语句逐行替换」的对照示意，重点在参数映射。
+> 真正落地时仍应遵守铁律，把 `Updater.create(...)` 提到 `Application.onCreate()` 里做进程级单例，
+> ViewModel 只通过 getter 取用；否则冷启动的 WorkManager worker 会拿不到共享的 `WorkerHttp.client`。
+
 ```kotlin
 import dev.cuculus.update.UpdateStatus
 import dev.cuculus.update.Updater

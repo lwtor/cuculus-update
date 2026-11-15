@@ -77,8 +77,10 @@ class MyApplication : Application() {
 > **Do not call `Updater.create()` in an Activity property initializer**, e.g.
 > `private val updater = Updater.create(this, ...)`. An Activity is not attached to a base Context
 > until `attachBaseContext()`, so `packageName` and `applicationContext` are unavailable there and
-> the app crashes on launch. Use `Application.onCreate()`; at the earliest, `Activity.onCreate()`
-> with `applicationContext` also works.
+> the app crashes on launch. Create the process-wide singleton in `Application.onCreate()`.
+> `Activity.onCreate()` with `applicationContext` is only a last-resort fallback (at the latest):
+> a cold-start WorkManager worker can be created before that Activity exists, so it would find no
+> shared `WorkerHttp.client`.
 
 Check:
 
@@ -170,10 +172,15 @@ but its progress notification is hidden.
 
 ## Sample
 
-`:sample` is a classic-Views demo (`Updater Sample`, applicationId
+`:sample` is a classic-Views demo (`Cuculus Update Demo`, applicationId
 `dev.cuculus.update.sample`) with 检查更新 / 下载 / 安装 buttons and a log of the last
 `UpdateCheck`. Its manifest declares no permissions and no provider on purpose: if it builds and
 runs, the library merge works.
+
+The demo uses a `NoActionBar` theme and draws its own title inside the scrolling content, then
+pads the root view with `OnApplyWindowInsetsListener` for the status/navigation bars. On
+Android 15+ a `targetSdk 37` app is forced edge-to-edge, so a system ActionBar or an unpadded
+root would cover the top buttons. Keep that in mind if you copy the sample layout.
 
 ```bash
 sh gradlew :updater:testDebugUnitTest --console=plain   # 23 unit tests

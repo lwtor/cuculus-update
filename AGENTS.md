@@ -33,7 +33,10 @@ cuculus-update/
 │       ├── res/xml/updater_file_paths.xml   # ★ 暴露 cacheDir/updater/
 │       └── kotlin/dev/cuculus/update/*.kt  # 全部公开 API 与实现，见下
 ├── sample/                      # 经典 Views 演示（:sample），验证「清单合并」是否成立
-│   └── src/main/AndroidManifest.xml        # 故意不写任何权限 / provider
+│   └── src/main/
+│       ├── AndroidManifest.xml        # 故意不写任何权限 / provider；注册 SampleApp
+│       ├── kotlin/dev/cuculus/update/sample/  # SampleApp（Application.onCreate 建单例）、MainActivity
+│       └── res/values/styles.xml + values-v27/styles.xml  # NoActionBar + edge-to-edge 系统栏
 └── docs/                        # 完整知识库（01–05 基础篇、06–11 进阶篇）
     ├── README.md               # 知识库总目录与阅读顺序
     └── 09-llm-playbook.md      # ★ 大模型一步到位接入手册（决策树 + 完整代码 + 验收）
