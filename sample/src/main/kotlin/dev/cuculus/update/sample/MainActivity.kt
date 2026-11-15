@@ -17,8 +17,10 @@ import dev.cuculus.update.UpdateStatus
 import dev.cuculus.update.Updater
 import java.io.File
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
@@ -49,6 +51,9 @@ class MainActivity : Activity() {
 
     private var downloadedApk: File? = null
 
+    /** The in-flight transfer, so the download button can cancel it instead of locking the UI. */
+    private var downloadJob: Job? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -69,7 +74,7 @@ class MainActivity : Activity() {
         )
 
         findViewById<Button>(R.id.check_button).setOnClickListener { checkForUpdate() }
-        downloadButton.setOnClickListener { downloadUpdate() }
+        downloadButton.setOnClickListener { onDownloadButtonClick() }
         installButton.setOnClickListener { installUpdate() }
 
         // The SDK's own state, kept in sync by checkAndPrefetch() in a production app.
@@ -167,12 +172,26 @@ class MainActivity : Activity() {
      * byte-level progress. The foreground worker is a separate SDK capability (it keeps downloading
      * after the screen is left), but a demo must not depend on foreground-service permissions,
      * notification channels or WorkManager progress persistence just to show a working download.
+     *
+     * While a transfer is running this button doubles as "cancel". A download that looks frozen is
+     * the worst possible state for a demo: even with the SDK's stall detection there is no way to
+     * tell a slow CDN from a dead one without a way out, so the button toggles instead of locking.
      */
-    private fun downloadUpdate() {
-        downloadButton.isEnabled = false
-        progressBar.progress = 0
+    private fun onDownloadButtonClick() {
+        if (downloadJob?.isActive == true) {
+            downloadJob?.cancel()
+            showStatus("已取消下载")
+            progressBar.progress = 0
+            return
+        }
+        startDownload()
+    }
+
+    private fun startDownload() {
         showStatus("正在获取最新版本…")
-        scope.launch {
+        progressBar.progress = 0
+        downloadButton.setText(R.string.cancel_download)
+        downloadJob = scope.launch {
             // latestInstallableAsset() deliberately skips version comparison and versionCode
             // parsing, so any release carrying a .apk asset is downloadable.
             val asset = try {
@@ -180,12 +199,10 @@ class MainActivity : Activity() {
             } catch (error: Exception) {
                 showStatus("获取最新版本失败：${error.message}")
                 logText.text = error.toString()
-                downloadButton.isEnabled = true
                 return@launch
             }
             if (asset == null) {
                 showStatus("最新 Release 里没有 .apk 资产")
-                downloadButton.isEnabled = true
                 return@launch
             }
             showStatus("开始下载 ${asset.name}（不校验版本号）")
@@ -223,11 +240,16 @@ class MainActivity : Activity() {
                     appendLine("downloaded to = ${apk.absolutePath}")
                     appendLine("bytes = ${apk.length()}")
                 }
+            } catch (cancelled: CancellationException) {
+                // Cancelling a transfer is a user action, not a failure: report it as such.
+                progressBar.progress = 0
+                showStatus("下载已取消")
+                throw cancelled
             } catch (error: Exception) {
                 showStatus("下载失败：${error.message}")
                 logText.text = error.toString()
             } finally {
-                downloadButton.isEnabled = true
+                downloadButton.setText(R.string.download)
             }
         }
     }
