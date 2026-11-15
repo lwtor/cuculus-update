@@ -44,11 +44,11 @@
             android:layout_marginTop="24dp"
             android:text="@string/check_update" />
 
+        <!-- No version gate: this button is always enabled, even when check() says UpToDate. -->
         <Button
             android:id="@+id/download_button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:enabled="false"
             android:text="@string/download" />
 
         <Button

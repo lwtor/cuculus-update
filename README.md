@@ -195,11 +195,19 @@ root would cover the top buttons. Keep that in mind if you copy the sample layou
 **The demo updates itself.** `SampleApp` points at `lwtor/cuculus-update`, the repository that
 publishes this demo's own APKs; `check()` is called with this app's own
 `BuildConfig.VERSION_CODE`. An end-to-end run needs two builds: install the older one, publish a
-newer one as a **normal** release (not a prerelease), then 检查更新 → 下载 → 安装 upgrades the app
-in place. Release assets are named `cuculus-update-demo-v<name>-<versionCode>.apk`, e.g.
-`cuculus-update-demo-v1.2.4-7.apk` → versionCode `7`, so the default `AssetNameSuffix()` needs no
+newer one as a **normal** release (not a prerelease), then 检查更新 → 下载最新版本 → 安装 upgrades
+the app in place. Release assets are named `cuculus-update-demo-v<name>-<versionCode>.apk`, e.g.
+`cuculus-update-demo-v1.2.6-9.apk` → versionCode `9`, so the default `AssetNameSuffix()` needs no
 custom resolver. Both builds share the debug keystore, so the system installer can replace the
 running app.
+
+**Downloading is deliberately not version-gated.** 检查更新 only *displays* the comparison; the
+下载最新版本 button calls `Updater.latestInstallableAsset()`, which fetches the latest release's
+APK without comparing versionCodes or decoding one from the asset name. The button therefore stays
+enabled even when `check()` returns `UpToDate` or `NoInstallableAsset`, so download → install can
+be exercised repeatedly on an already-up-to-date build. Production apps should still gate their
+update *badge* on `check()` / `checkAndPrefetch()` — the two concerns are separate; see
+[§1.4 of the API reference](docs/03-api-reference.md).
 
 ```bash
 sh gradlew :updater:testDebugUnitTest --console=plain   # 23 unit tests

@@ -13,8 +13,9 @@ import dev.cuculus.update.UpdaterConfig
  * with a different applicationId/signature, so the install step could never succeed.
  *
  * Version scheme: demo assets are named `cuculus-update-demo-v<name>-<versionCode>.apk`, so the
- * SDK's default `AssetNameSuffix()` reads a plain increasing integer (6, 7, ...) that lives in the
- * same number space as this app's `BuildConfig.VERSION_CODE`. No custom resolver is needed.
+ * SDK's default `AssetNameSuffix()` reads a plain increasing integer that lives in the same number
+ * space as this app's `BuildConfig.VERSION_CODE`. No custom resolver is needed. Note that the
+ * download button does not depend on this at all — it uses `Updater.latestInstallableAsset()`.
  *
  * This must NOT be done in an Activity property initializer: an Activity has no base Context
  * until attachBaseContext() runs, so getPackageName() and getApplicationContext() throw a

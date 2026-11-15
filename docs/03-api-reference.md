@@ -27,7 +27,7 @@ class Updater private constructor(
 ) : UpdateGateway
 ```
 
-构造是 `private`，**唯一入口是 `Updater.create()`**。类自身实现了 `UpdateGateway` 全部 7 个方法，另有 `status` 与 `checkAndPrefetch()` 两个独有成员。
+构造是 `private`，**唯一入口是 `Updater.create()`**。类自身实现了 `UpdateGateway` 全部 7 个方法，另有 `status`、`checkAndPrefetch()` 与 `latestInstallableAsset()` 三个独有成员。
 
 ### 1.1 `Updater.create()`
 
@@ -94,6 +94,31 @@ suspend fun checkAndPrefetch(installedVersionCode: Long)
 ```
 
 > `Downloaded` 的 `apkFile` 与 `cachedApk(code)` 是同一份落盘文件（记录写进 SharedPreferences `"<scope>.updater"`）。
+
+### 1.4 `Updater.latestInstallableAsset()`（不做版本比较）
+
+```kotlin
+suspend fun latestInstallableAsset(): ReleaseAsset?
+```
+
+| 项 | 说明 |
+|---|---|
+| 参数 | 无 |
+| 返回值 | latest release 里可安装的 APK（`ReleaseAsset?`）；release 存在但没有 `.apk` 资产时返回 `null` |
+| 抛出的异常 | `ReleaseApiException`（404：仓库只有 draft/prerelease）、`IOException` 等网络异常；**不吞异常** |
+| 版本判断 | **完全没有**。不比较 `installedVersionCode`，也不解析资产名里的 versionCode |
+| 所在类型 | 具体 `Updater`，**不在 `UpdateGateway` 上**（接口仍只有 7 个动作方法） |
+
+用途：手动重试、强制重装、Debug/Demo 的「直接下载最新版」按钮，或发布端资产名不遵循 `-<versionCode>.apk` 契约的场景。内部等于 `ReleaseApi.latestRelease()` + `ReleaseSelection.pickUpdateApk()`。
+
+与 `check()` 的分工要分清：
+
+| 需求 | 用哪个 |
+|---|---|
+| 判断「要不要亮更新红点」 | `check(installedVersionCode)` / `checkAndPrefetch()` |
+| 「不管新旧，把最新 APK 给我」 | `latestInstallableAsset()` |
+
+因此**不要**把下载按钮的可用性和 `UpdateCheck.Available` 绑定：`UpToDate(release, asset)` 本身也带 asset，而 `NoInstallableAsset` 也可能只是版本解析失败、实际仍有 APK。需要「随时可下载」的界面应当直接调用本方法，再把结果交给 `downloadInForeground()` / `download()`。
 
 ---
 

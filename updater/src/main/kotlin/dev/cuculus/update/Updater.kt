@@ -54,6 +54,27 @@ class Updater private constructor(
         }
     }
 
+    /**
+     * Returns the APK asset of the latest release **without any version comparison**.
+     *
+     * Unlike [check], this neither decodes a versionCode from the asset name nor requires the
+     * release to be newer than the installed build. Use it whenever the caller wants "just give me
+     * the APK" — manual retry, forced re-install, a debug/demo download button, or a release whose
+     * asset naming does not follow the `-<versionCode>.apk` contract. [check] remains the API for
+     * deciding whether an update badge should be shown.
+     *
+     * This is a method on the concrete [Updater] rather than on [UpdateGateway], so the gateway's
+     * seven actions and its JVM-testable surface stay unchanged.
+     *
+     * @throws ReleaseApiException / java.io.IOException when the latest release cannot be fetched
+     *   (e.g. the repository has only drafts/prereleases).
+     * @return null when the release exists but carries no `.apk` asset.
+     */
+    suspend fun latestInstallableAsset(): ReleaseAsset? {
+        val release = api.latestRelease(config.owner, config.repository)
+        return ReleaseSelection.pickUpdateApk(release.assets)
+    }
+
     override fun cachedApk(versionCode: Long): File? = stateStore.cachedApkForVersion(versionCode)
 
     override suspend fun downloadInForeground(asset: ReleaseAsset): File {

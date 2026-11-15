@@ -11,7 +11,6 @@ import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
 import dev.cuculus.update.InstallResult
-import dev.cuculus.update.ReleaseAsset
 import dev.cuculus.update.UpdateCheck
 import dev.cuculus.update.UpdateStatus
 import dev.cuculus.update.Updater
@@ -45,7 +44,6 @@ class MainActivity : Activity() {
     private lateinit var downloadButton: Button
     private lateinit var installButton: Button
 
-    private var availableAsset: ReleaseAsset? = null
     private var downloadedApk: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -141,10 +139,12 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * `check()` is only for *showing* the version comparison. It must never gate the download
+     * button: a build that is already up to date (or whose release code cannot be decoded) still
+     * has an APK available, and a test/demo app needs to exercise download + install repeatedly.
+     */
     private fun checkForUpdate() {
-        availableAsset = null
-        downloadButton.isEnabled = false
-        installButton.isEnabled = false
         logText.text = ""
         showStatus("正在检查…")
         scope.launch {
@@ -159,11 +159,28 @@ class MainActivity : Activity() {
         }
     }
 
+    /** No version gate: always fetch and download the APK from the latest release. */
     private fun downloadUpdate() {
-        val asset = availableAsset ?: return
         downloadButton.isEnabled = false
-        showStatus("开始下载 ${asset.name}")
+        showStatus("正在获取最新版本…")
         scope.launch {
+            // latestInstallableAsset() deliberately skips version comparison and versionCode
+            // parsing, so any release carrying a .apk asset is downloadable.
+            val asset = try {
+                updater.latestInstallableAsset()
+            } catch (error: Exception) {
+                showStatus("获取最新版本失败：${error.message}")
+                logText.text = error.toString()
+                downloadButton.isEnabled = true
+                return@launch
+            }
+            if (asset == null) {
+                showStatus("最新 Release 里没有 .apk 资产")
+                downloadButton.isEnabled = true
+                return@launch
+            }
+            showStatus("开始下载 ${asset.name}（不校验版本号）")
+
             // A foreground download survives leaving this screen; its progress is published by
             // WorkManager, so the observer can run independently of the download coroutine.
             val progressJob = launch {
@@ -183,6 +200,7 @@ class MainActivity : Activity() {
                 showStatus("下载失败：${error.message}")
             } finally {
                 progressJob.cancel()
+                downloadButton.isEnabled = true
             }
         }
     }
@@ -196,16 +214,16 @@ class MainActivity : Activity() {
     }
 
     private fun render(check: UpdateCheck) {
+        val installed = BuildConfig.VERSION_CODE.toLong()
         when (check) {
-            is UpdateCheck.Available -> {
-                availableAsset = check.asset
-                downloadButton.isEnabled = true
-                showStatus("发现新版本 code=${check.versionCode}")
-            }
-            is UpdateCheck.UpToDate -> showStatus("已是最新版本")
-            UpdateCheck.NoInstallableAsset -> showStatus("该发布中没有可安装的 APK")
+            is UpdateCheck.Available ->
+                showStatus("云端 code=${check.versionCode} > 本 App code=$installed（有更新）")
+            is UpdateCheck.UpToDate ->
+                showStatus("云端不比本 App code=$installed 新，但「下载」仍可用")
+            UpdateCheck.NoInstallableAsset ->
+                showStatus("check() 未解析出可安装 APK；「下载」仍会直接取最新 .apk")
         }
-        logText.text = describe(check)
+        logText.text = "installedVersionCode = $installed\n\n" + describe(check)
     }
 
     /** The last [UpdateCheck], printed in full so the release/asset pick is visible. */

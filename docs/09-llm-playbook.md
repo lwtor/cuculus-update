@@ -525,6 +525,7 @@ UpdaterConfig(
 18. **不要在 `Activity` 的属性初始化器里调用 `Updater.create(this, ...)`，也不要在那里求值 `"$packageName.updater"`**。Activity 构造时 base Context 尚未 attach，`getPackageName()` / `getApplicationContext()` 抛 NPE → **App 一启动就崩**，且在 `onCreate` 之前，日志栈顶落在 `<init>`。唯一正确位置是 `Application.onCreate()` 里创建单例（§2.3 `App.kt`），最晚 `Activity.onCreate()` 内用 `applicationContext`。这是本 SDK 最容易被大模型写错的一处；照抄 §2 模板即可避开。
 19. **不要把 `repository` 指向别的 App 的仓库或 SDK 自己的源码仓库**。`check(installedVersionCode)` 比较的是「已安装 App 的 versionCode」与「该 release 资产名解出的 code」，返回的 asset 就是要装进本 App 的 APK。指向别的 App 会让比较失去意义，且因 applicationId / 签名不同导致安装必然失败。`repository` 只能是**发布本 App APK** 的那个仓库。
 20. **不要把更新发成 prerelease 却指望 `check()` 能查到**。SDK 调 GitHub `/releases/latest`，该接口**排除 draft 与 prerelease**；只有 prerelease 的仓库会抛 `ReleaseApiException(404, "no published release")`。演示自更新时，云端「新版本」必须是普通 release（[05 篇](05-release-contract.md)、[08 §1](08-troubleshooting.md)）。
+21. **不要把「下载」按钮的可用性和 `UpdateCheck.Available` 绑定**。`check()` 的语义是「要不要亮更新红点」，不是「能不能下载」：`UpToDate(release, asset)` 本身就带 asset，`NoInstallableAsset` 也可能只是版本解析失败而实际仍有 APK。需要「随时可下载 / 强制重装 / Demo 反复测试」时，用具体 `Updater` 上的 `latestInstallableAsset()`（不做版本比较、不解析 versionCode），再交给 `downloadInForeground()`；`check()` 继续只负责展示判定（[03 §1.4](03-api-reference.md)）。本仓库 `:sample` 就是这个写法。
 
 ---
 
