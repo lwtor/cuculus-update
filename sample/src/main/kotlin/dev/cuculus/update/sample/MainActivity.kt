@@ -1,7 +1,10 @@
 package dev.cuculus.update.sample
 
 import android.app.Activity
+import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -46,6 +49,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        applySystemBarInsets(findViewById(R.id.root_scroll))
 
         val versionText: TextView = findViewById(R.id.version_text)
         statusText = findViewById(R.id.status_text)
@@ -78,6 +82,47 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    /**
+     * With targetSdk 37 the system forces edge-to-edge on Android 15+, and a system ActionBar
+     * would overlay the first rows of content. The demo uses NoActionBar and draws its own title
+     * inside the scrollable content, then pads the root for the status/navigation bars so nothing
+     * is covered by the system UI. On older platforms the insets are already consumed by the
+     * decor view and come back as zero, so this is a no-op there.
+     *
+     * The listener returns the insets unconsumed (matching the official edge-to-edge sample), so
+     * no child of root_scroll may set android:fitsSystemWindows or its own insets listener — that
+     * would apply the same insets twice. Padding is assigned absolutely from the saved baseline,
+     * which keeps repeated dispatch (IME, rotation) idempotent.
+     */
+    @Suppress("DEPRECATION")
+    private fun applySystemBarInsets(root: View) {
+        val baseLeft = root.paddingLeft
+        val baseTop = root.paddingTop
+        val baseRight = root.paddingRight
+        val baseBottom = root.paddingBottom
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            val bars = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val systemBars = insets.getInsets(WindowInsets.Type.systemBars())
+                intArrayOf(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            } else {
+                intArrayOf(
+                    insets.systemWindowInsetLeft,
+                    insets.systemWindowInsetTop,
+                    insets.systemWindowInsetRight,
+                    insets.systemWindowInsetBottom,
+                )
+            }
+            view.setPadding(
+                baseLeft + bars[0],
+                baseTop + bars[1],
+                baseRight + bars[2],
+                baseBottom + bars[3],
+            )
+            insets
+        }
+        root.requestApplyInsets()
     }
 
     private fun checkForUpdate() {

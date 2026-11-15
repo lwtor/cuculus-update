@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- No system ActionBar: the demo draws its own title inside the scrolling content, so it can
+         never cover the buttons. System bars are transparent and the light-theme icons stay dark
+         and readable on the light content background (Android 15+ edge-to-edge). -->
+    <style name="DemoTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>
