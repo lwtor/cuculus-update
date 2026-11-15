@@ -55,10 +55,11 @@ class BuildNumberResolver : ReleaseVersionResolver {
 ### 决策 C — 是否多 scope
 
 - **单更新源**（绝大多数）→ 用默认 `scope = "self_update"`，**不传**该字段。
-- **一个 App 多个更新源**（主包 + 插件、两个仓库）→ 每个源配不同 `scope`，各自 `Updater.create`、各自收集 `status`、各自点红点：
+- **一个 App 多个更新源**（主包 + 插件、两个仓库）→ 每个源配不同 `scope`，各自 `Updater.create`、各自收集 `status`、各自点红点。**下面两行必须写在 `Application.onCreate()` 内**（与 §2.3 `App.kt` 同一位置），`this` 指 `Application`；用 `applicationContext` 更明确：
   ```kotlin
-  val mainUpdater   = Updater.create(this, config.copy(scope = "main"))
-  val pluginUpdater = Updater.create(this, config.copy(scope = "plugin"))
+  // 在 Application.onCreate() 内：
+  val mainUpdater   = Updater.create(applicationContext, config.copy(scope = "main"))
+  val pluginUpdater = Updater.create(applicationContext, config.copy(scope = "plugin"))
   ```
 - **铁律**：`scope` 派生缓存目录 / SharedPreferences / unique work / 通知渠道 / 通知 id；必须是合法文件名片段，**不要含 `/`、`\`、空格**。（`config` 是 `data class`，可用 `.copy()`。）
 
@@ -521,6 +522,7 @@ UpdaterConfig(
 15. **不要假设 SDK 内置 UI**。角标、对话框、进度条全部由接入方自己画；SDK 只给 `status` / `UpdateProgress` / `Flow<Float?>` / `InstallResult`。
 16. **不要改 `updaterCacheDir()` 而不改 `updater_file_paths.xml`**，否则 FileProvider 暴露不到 APK（AGENTS.md 不变量 2）。
 17. **不要每次用到都 `new` 一个 `Updater`**。每个进程、每个 scope 应只有一个 `Updater` 单例（放 Application），以便 `WorkerHttp` 与 `status` 一致。
+18. **不要在 `Activity` 的属性初始化器里调用 `Updater.create(this, ...)`，也不要在那里求值 `"$packageName.updater"`**。Activity 构造时 base Context 尚未 attach，`getPackageName()` / `getApplicationContext()` 抛 NPE → **App 一启动就崩**，且在 `onCreate` 之前，日志栈顶落在 `<init>`。唯一正确位置是 `Application.onCreate()` 里创建单例（§2.3 `App.kt`），最晚 `Activity.onCreate()` 内用 `applicationContext`。这是本 SDK 最容易被大模型写错的一处；照抄 §2 模板即可避开。
 
 ---
 

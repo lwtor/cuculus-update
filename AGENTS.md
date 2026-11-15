@@ -93,6 +93,7 @@ sh gradlew clean --console=plain
 6. **公开签名里的依赖用 `api` 不用 `implementation`**。`OkHttpClient`（`Updater.create`）、`Flow` / `StateFlow`（`UpdateGateway` / `Updater.status`）出现在公开 API，必须是 `api(...)`，否则 AAR 消费方编译期拿不到类型。
 7. **`REQUEST_INSTALL_PACKAGES` 与 `POST_NOTIFICATIONS` 语义不要改**。前者是 normal 权限（无运行时弹窗，用户仍逐次确认安装），后者虽由库声明、仍需在 API 33+ 运行时授权；未授权时下载照常进行、只是进度通知被隐藏。
 8. **不做静默安装、不内置 UI、不发布 Maven Central**（见 [`docs/10-design-rationale.md`](docs/10-design-rationale.md)）。
+9. **`Updater.create()` 只能在已 attach 的 Context 上调用**。`Updater` 构造立即读 `context.applicationContext` 并 `getSharedPreferences`；`UpdaterConfig` 惯例用 `"$packageName.updater"` 拼 authority。而 `Activity` 在 `attachBaseContext()` 之前 `mBase` 为 null，把 `private val updater = Updater.create(this, ...)` 写在**属性初始化器**里会直接 NPE、App 启动即崩。必须放 `Application.onCreate()`（推荐：进程级单例，也让冷启动恢复的 worker 拿到 `WorkerHttp.client`），最晚也要在 `Activity.onCreate()` 里传 `applicationContext`。sample 用 `SampleApp : Application()` + manifest `android:name=".SampleApp"` 演示正确写法，改动此处必须同步更新 README Quick start 与 09 篇禁止事项。
 
 ## 5. 提交规范
 

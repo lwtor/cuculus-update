@@ -29,6 +29,20 @@ adb logcat -v brief | grep -iE 'cuculus|UpdateDownload|WorkManager|WM-|DownloadE
 
 ---
 
+## 0. App 一启动就崩溃（最高频，先查这条）
+
+- **日志线索**：`NullPointerException: Attempt to invoke virtual method '...ContextWrapper.getApplicationContext()' (or getPackageName()) on a null object reference`；栈顶在 `Activity.<init>` / 属性初始化，发生在 `onCreate` 之前，logcat 里常伴随 `FATAL EXCEPTION: main`。
+- **原因**：`Updater.create(this, ...)` 或 `"$packageName.updater"` 被写在 **Activity 属性初始化器**里。Activity 在 `attachBaseContext()` 之前 `mBase` 为 null；`Updater` 构造还会立即 `context.getSharedPreferences(...)`，同样需要有效 Context。这与 SDK 逻辑无关，纯属 Context 生命周期误用。
+- **修复**：把创建移到 `Application.onCreate()`，存成进程级单例（`lateinit var updater`），Activity 里用 `(application as MyApplication).updater` 取；**记得在 manifest 的 `<application>` 上注册 `android:name=".MyApplication"`**。最晚可在 `Activity.onCreate()` 内用 `applicationContext` 创建，但那样进程被杀后先恢复的 WorkManager worker 可能拿不到 `WorkerHttp.client`。
+- **自查**：
+  ```bash
+  grep -rn 'Updater.create' app/src   # 任何出现在 Activity 顶层 private val 上的调用都是错的
+  dexdump -d <apk> | grep 'Updater;->create'   # 看它落在 <init> 还是 onCreate
+  ```
+  修复后 `<init>` 里不应再出现 `create` / `getPackageName`。
+
+---
+
 ## 1. 无更新 / 一直 `UpdateCheck.NoInstallableAsset`
 
 - **检查命令**：

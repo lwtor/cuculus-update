@@ -47,20 +47,38 @@ dependencies {
 
 ## Quick start
 
+Create the `Updater` **once, from an attached Context**. The recommended place is
+`Application.onCreate()`; register the class with `android:name=".MyApplication"` on your
+`<application>` tag.
+
 ```kotlin
-private val updater = Updater.create(
-    this,
-    UpdaterConfig(
-        owner = "lwtor",
-        repository = "venera-native",
-        fileProviderAuthority = "$packageName.updater",
-        versionResolver = ReleaseVersionResolver.Or(
-            ReleaseVersionResolver.AssetNameSuffix(),
-            ReleaseVersionResolver.TagScheme(),
-        ),
-    ),
-)
+class MyApplication : Application() {
+    lateinit var updater: Updater
+        private set
+
+    override fun onCreate() {
+        super.onCreate()
+        updater = Updater.create(
+            applicationContext,
+            UpdaterConfig(
+                owner = "lwtor",
+                repository = "venera-native",
+                fileProviderAuthority = "$packageName.updater",
+                versionResolver = ReleaseVersionResolver.Or(
+                    ReleaseVersionResolver.AssetNameSuffix(),
+                    ReleaseVersionResolver.TagScheme(),
+                ),
+            ),
+        )
+    }
+}
 ```
+
+> **Do not call `Updater.create()` in an Activity property initializer**, e.g.
+> `private val updater = Updater.create(this, ...)`. An Activity is not attached to a base Context
+> until `attachBaseContext()`, so `packageName` and `applicationContext` are unavailable there and
+> the app crashes on launch. Use `Application.onCreate()`; at the earliest, `Activity.onCreate()`
+> with `applicationContext` also works.
 
 Check:
 

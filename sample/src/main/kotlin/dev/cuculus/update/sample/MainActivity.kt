@@ -7,11 +7,9 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import dev.cuculus.update.InstallResult
 import dev.cuculus.update.ReleaseAsset
-import dev.cuculus.update.ReleaseVersionResolver
 import dev.cuculus.update.UpdateCheck
 import dev.cuculus.update.UpdateStatus
 import dev.cuculus.update.Updater
-import dev.cuculus.update.UpdaterConfig
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,26 +19,20 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
- * The whole integration: build one [Updater] from one [UpdaterConfig], then drive
- * check / download / install from the UI. No permission, no FileProvider, no service declaration
- * lives in this app — the library manifest supplies all of it.
+ * The whole integration: the [Updater] is built once in [SampleApp] from an attached Application
+ * context, then this screen drives check / download / install from the UI. No permission, no
+ * FileProvider, no service declaration lives in this app — the library manifest supplies all of it.
+ *
+ * Do NOT create the Updater in a property initializer here: an Activity has no base Context until
+ * attachBaseContext() runs, so getPackageName() and getApplicationContext() throw there and the
+ * app would crash before onCreate().
  */
 class MainActivity : Activity() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private val updater = Updater.create(
-        this,
-        UpdaterConfig(
-            owner = "lwtor",
-            repository = "venera-native",
-            fileProviderAuthority = "$packageName.updater",
-            versionResolver = ReleaseVersionResolver.Or(
-                ReleaseVersionResolver.AssetNameSuffix(),
-                ReleaseVersionResolver.TagScheme(),
-            ),
-        ),
-    )
+    private val updater: Updater
+        get() = (application as SampleApp).updater
 
     private lateinit var statusText: TextView
     private lateinit var logText: TextView

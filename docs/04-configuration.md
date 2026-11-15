@@ -117,9 +117,10 @@ InstallResult.Failure("unable to expose the APK: ...")
 ### 3.3 多更新源示例
 
 ```kotlin
-// 在 Application 里建两个实例，用不同 scope 隔离；注意 httpClient 仍是进程级共享。
+// 在 Application.onCreate() 里建两个实例，用不同 scope 隔离；注意 httpClient 仍是进程级共享。
+// 必须传 applicationContext：Activity 构造期调用会 NPE 导致启动崩溃（见 09 篇禁止事项 18）。
 val stableUpdater = Updater.create(
-    this,
+    applicationContext,
     UpdaterConfig(
         owner = "lwtor",
         repository = "venera-native",
@@ -133,7 +134,7 @@ val stableUpdater = Updater.create(
 )
 
 val betaUpdater = Updater.create(
-    this,
+    applicationContext,
     UpdaterConfig(
         owner = "lwtor",
         repository = "venera-native-beta",

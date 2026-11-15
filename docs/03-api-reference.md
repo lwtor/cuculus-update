@@ -51,6 +51,7 @@ companion object {
 - **返回值**：`Updater`（实现 `UpdateGateway`）。
 - **抛出的异常**：无。不校验 `owner` / `repository` / authority 的合法性，错误会在运行时 `check()` / `install()` 暴露。
 - **协程/线程约束**：普通函数，任意线程可调用；**建议只在 `Application.onCreate()` 调用一次并存成单例**。
+- **Context 约束（违反会启动崩溃）**：`create()` 内部立即读 `context.applicationContext` 并构造 `UpdateStateStore`（`getSharedPreferences`），且 `fileProviderAuthority` 惯例由 `$packageName` 拼出。`Activity` 在 `attachBaseContext()` 之前没有 base Context，因此**禁止在 Activity 属性初始化器里调用**（`private val updater = Updater.create(this, ...)` → NPE，App 启动即崩）。用 `Application.onCreate()`；必须放 Activity 时也只能放进 `onCreate()` 且传 `applicationContext`。
 - **误判**：多个页面各 `create()` 一次 → 后建的覆盖 `WorkerHttp.client`，破坏共享 proxy/DNS 配置。
 
 ### 1.2 `Updater.status`

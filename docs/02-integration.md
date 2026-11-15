@@ -683,6 +683,7 @@ fun UpdateScreen(vm: UpdateViewModel = viewModel()) {
 - 把 `checkAndPrefetch()` 放进启动路径，用 `status.collect` 驱动红点。
 
 **不该做什么**
+- ❌ **不要把 `Updater.create(this, ...)` 写在 `Activity` 的属性初始化器里**：Activity 构造时 base Context 未 attach，`packageName` / `applicationContext` 为 null → 启动即崩。只在 `Application.onCreate()` 创建单例（见 §2 的 `App.kt` 模板）。
 - ❌ 不要在 `AndroidManifest.xml` 声明权限 / Service / FileProvider（库已合并）。
 - ❌ 不要在 `Dispatchers.Main` 上直接调 `download()`（下载循环含阻塞 I/O）；不要在 `onProgress` 里直接改 View。
 - ❌ 不要向 `check()` 传 `versionName`；不要忘 `buildConfig = true` 和 `.toLong()`。
