@@ -81,6 +81,10 @@ class Updater private constructor(
 
     override fun cachedApk(versionCode: Long): File? = stateStore.cachedApkForVersion(versionCode)
 
+    override fun rememberDownloadedApk(versionCode: Long, apk: File) {
+        stateStore.saveDownloadedApk(versionCode, apk.absolutePath)
+    }
+
     override suspend fun downloadInForeground(asset: ReleaseAsset): File {
         val targetName = ReleaseSelection.sanitizeAssetFileName(asset.name)
         val requestId = scheduler.start(

@@ -1,5 +1,6 @@
 package dev.cuculus.update
 
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.Job
@@ -408,11 +409,28 @@ class ApkDownloaderTest {
         }
     }
 
-    private fun apkBytes(size: Int): ByteArray = ByteArray(size).also { bytes ->
-        // APK files are ZIP archives starting with a local file header.
-        bytes[0] = 0x50
-        bytes[1] = 0x4B
-        bytes[2] = 0x03
-        bytes[3] = 0x04
+    /**
+     * A byte-exact, *valid* APK fixture: a real ZIP whose central directory the SDK's integrity
+     * check can read. Tests assert both the exact byte count and content equality after ranged
+     * assembly, so the fixture must come back to exactly [size] bytes.
+     */
+    private fun apkBytes(size: Int): ByteArray {
+        require(size > 256) { "too small for a valid zip" }
+        val payload = ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(payload).use { zip ->
+            zip.setLevel(0) // stored, so entry bytes are predictable
+            zip.putNextEntry(java.util.zip.ZipEntry("classes.dex"))
+            // aim under the target; the entry header + data descriptor + central directory add overhead
+            zip.write(ByteArray(size - 512))
+            zip.closeEntry()
+        }
+        val zip = payload.toByteArray()
+        check(zip.size <= size) { "zip fixture ${zip.size} exceeded target $size" }
+        // Pad inside the ZIP via an extra field would need re-writing offsets; instead append
+        // trailing bytes after the EOCD, which ZipFile tolerates, to reach the exact size.
+        if (zip.size == size) return zip
+        val padded = ByteArray(size)
+        System.arraycopy(zip, 0, padded, 0, zip.size)
+        return padded
     }
 }

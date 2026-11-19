@@ -157,6 +157,10 @@ internal class ApkDownloader(
         }
         try {
             verifyApkHeader(part)
+            // The magic number alone lets a truncated or mis-assembled body through — it still
+            // starts with PK\x03\x04 and may even have the right length. Reading the ZIP central
+            // directory (a few KB at the end) catches those before the system installer does.
+            verifyZipStructure(part)
         } catch (error: DownloadException) {
             part.delete()
             throw error
@@ -464,6 +468,17 @@ internal class ApkDownloader(
         val read = FileInputStream(file).use { it.read(header) }
         if (read != header.size || !header.contentEquals(ZIP_LOCAL_FILE_HEADER)) {
             throw DownloadException("the downloaded file is not an Android package")
+        }
+    }
+
+    /** Cheap integrity check: a valid APK's ZIP central directory must be readable. */
+    private fun verifyZipStructure(file: File) {
+        try {
+            java.util.zip.ZipFile(file).use { zip ->
+                if (zip.size() <= 0) throw DownloadException("the downloaded package has no entries")
+            }
+        } catch (error: java.io.IOException) {
+            throw DownloadException("the downloaded package is corrupted: ${error.message}")
         }
     }
 

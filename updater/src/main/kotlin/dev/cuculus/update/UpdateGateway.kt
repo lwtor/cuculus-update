@@ -47,6 +47,14 @@ interface UpdateGateway {
     /** Returns the already-downloaded APK for [versionCode], or null when none is cached. */
     fun cachedApk(versionCode: Long): File?
 
+    /**
+     * Records [apk] as the downloaded package for [versionCode] so a later process finds it via
+     * [cachedApk]. Call after a successful [download] when the app drives its own UI state; the SDK
+     * cannot infer the versionCode from [download]'s asset alone. Without this, an in-app download
+     * is forgotten the moment the process dies and gets fetched again on the next launch.
+     */
+    fun rememberDownloadedApk(versionCode: Long, apk: File)
+
     /** Downloads the APK in the foreground via a WorkManager worker and awaits its completion. */
     suspend fun downloadInForeground(asset: ReleaseAsset): File
 

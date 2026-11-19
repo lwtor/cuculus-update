@@ -77,6 +77,14 @@ class MainActivity : Activity() {
         downloadButton.setOnClickListener { onDownloadButtonClick() }
         installButton.setOnClickListener { installUpdate() }
 
+        // A package downloaded in a previous process is remembered by the SDK, so a cold start
+        // can offer "install" immediately instead of fetching the same APK again.
+        updater.cachedApk(BuildConfig.VERSION_CODE.toLong())?.let { cached ->
+            downloadedApk = cached
+            installButton.isEnabled = true
+            showStatus("发现上次下载的包：${cached.name}（可直接安装）")
+        }
+
         // The SDK's own state, kept in sync by checkAndPrefetch() in a production app.
         scope.launch {
             updater.status.collect { status ->
@@ -229,6 +237,9 @@ class MainActivity : Activity() {
                     }
                 }
                 downloadedApk = apk
+                // Remember the package across process death so the next launch offers "install"
+                // directly instead of re-downloading the same bytes.
+                updater.rememberDownloadedApk(BuildConfig.VERSION_CODE.toLong(), apk)
                 installButton.isEnabled = true
                 progressBar.progress = 100
                 showStatus("下载完成：${apk.name}（${apk.length() / 1024} KB）")

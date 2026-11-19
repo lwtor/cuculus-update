@@ -13,11 +13,23 @@ class UpdateStateStoreTest {
     val tmp = TemporaryFolder()
 
     @Test
-    fun `accepts a file starting with the zip local file header`() {
+    fun `accepts a valid apk with a readable zip central directory`() {
+        val bytes = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(bytes).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("classes.dex"))
+            zip.write("dex".toByteArray())
+            zip.closeEntry()
+        }
+        val apk = File(tmp.newFolder(), "update.apk").apply { writeBytes(bytes.toByteArray()) }
+        assertTrue(isValidApk(apk))
+    }
+
+    @Test
+    fun `rejects a truncated zip that has only the local file header`() {
         val apk = File(tmp.newFolder(), "update.apk").apply {
             writeBytes(byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00))
         }
-        assertTrue(isValidApk(apk))
+        assertFalse("a PK header without a central directory is not a valid APK", isValidApk(apk))
     }
 
     @Test

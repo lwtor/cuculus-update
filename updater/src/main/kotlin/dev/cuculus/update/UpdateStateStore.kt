@@ -59,10 +59,14 @@ internal class UpdateStateStore(context: Context, scope: String) {
 internal fun isValidApk(file: File): Boolean {
     if (!file.isFile || file.length() < ZIP_LOCAL_FILE_HEADER.size) return false
     return runCatching {
-        file.inputStream().use { input ->
+        val headerOk = file.inputStream().use { input ->
             val header = ByteArray(ZIP_LOCAL_FILE_HEADER.size)
             input.read(header) == header.size && header.contentEquals(ZIP_LOCAL_FILE_HEADER)
         }
+        if (!headerOk) return@runCatching false
+        // A matching magic number alone accepts truncated or mis-assembled files, which then fail
+        // at the installer with an unhelpful parse error. Reading the central directory is cheap.
+        java.util.zip.ZipFile(file).use { it.size() > 0 }
     }.getOrDefault(false)
 }
 
