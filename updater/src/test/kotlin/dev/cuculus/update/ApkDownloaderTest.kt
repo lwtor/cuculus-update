@@ -409,6 +409,144 @@ class ApkDownloaderTest {
         }
     }
 
+    @Test
+    fun `resumes a partial download with parallel segments instead of one stream`() = runTest {
+        val bytes = apkBytes(16 * 1024)
+        val prefix = 8192
+        MockWebServer().use { server ->
+            server.dispatcher = object : mockwebserver3.Dispatcher() {
+                override fun dispatch(request: mockwebserver3.RecordedRequest): MockResponse {
+                    val (from, to) = request.headers["Range"]!!
+                        .removePrefix("bytes=")
+                        .split("-")
+                        .map { it.toLong() }
+                    return MockResponse.Builder()
+                        .code(206)
+                        .addHeader("Content-Range", "bytes $from-$to/${bytes.size}")
+                        .body(Buffer().write(bytes.copyOfRange(from.toInt(), to.toInt() + 1)))
+                        .build()
+                }
+            }
+            server.start()
+            val folder = tmp.newFolder()
+            val target = File(folder, "update.apk")
+            // A previous attempt saved the first half. The remaining half must still be fetched
+            // by several connections — not by one slow stream, which was the regression.
+            File(folder, "update.apk.part").writeBytes(bytes.copyOfRange(0, prefix))
+            val downloader = ApkDownloader(
+                OkHttpClient(),
+                progressIntervalBytes = 1024,
+                segmentCount = 4,
+                minSegmentTotalBytes = 1024,
+            )
+
+            val result = downloader.download(
+                server.url("/release.apk").toString(),
+                target,
+                bytes.size.toLong(),
+            )
+
+            assertEquals(target, result)
+            assertTrue(target.readBytes().contentEquals(bytes))
+            val ranges = (1..4).map { server.takeRequest().headers["Range"]!! }
+                .map { it.removePrefix("bytes=").split("-").map(String::toLong) }
+            assertEquals(prefix.toLong(), ranges.minOf { it[0] })
+            assertEquals((bytes.size - 1).toLong(), ranges.maxOf { it[1] })
+            assertTrue(
+                "no segment may re-fetch the already saved prefix: $ranges",
+                ranges.all { it[0] >= prefix },
+            )
+        }
+    }
+
+    @Test
+    fun `uses eight segments for a large asset and four for a small one by default`() = runTest {
+        val bytes = apkBytes(16 * 1024)
+        MockWebServer().use { server ->
+            server.dispatcher = object : mockwebserver3.Dispatcher() {
+                override fun dispatch(request: mockwebserver3.RecordedRequest): MockResponse {
+                    val (from, to) = request.headers["Range"]!!
+                        .removePrefix("bytes=")
+                        .split("-")
+                        .map { it.toLong() }
+                    return MockResponse.Builder()
+                        .code(206)
+                        .addHeader("Content-Range", "bytes $from-$to/${bytes.size}")
+                        .body(Buffer().write(bytes.copyOfRange(from.toInt(), to.toInt() + 1)))
+                        .build()
+                }
+            }
+            server.start()
+
+            val largeTarget = File(tmp.newFolder(), "large.apk")
+            val largeDownloader = ApkDownloader(
+                OkHttpClient(),
+                progressIntervalBytes = 1024,
+                minSegmentTotalBytes = 1024,
+                largeAssetThresholdBytes = 8192,
+                largeAssetSegmentCount = 8,
+            )
+            largeDownloader.download(server.url("/large.apk").toString(), largeTarget, bytes.size.toLong())
+            val largeRanges = (1..8).map { server.takeRequest().headers["Range"]!! }
+            assertEquals(8, largeRanges.size)
+            assertTrue(largeTarget.readBytes().contentEquals(bytes))
+
+            val smallTarget = File(tmp.newFolder(), "small.apk")
+            val smallDownloader = ApkDownloader(
+                OkHttpClient(),
+                progressIntervalBytes = 1024,
+                minSegmentTotalBytes = 1024,
+            )
+            smallDownloader.download(server.url("/small.apk").toString(), smallTarget, bytes.size.toLong())
+            val smallRanges = (9..12).map { server.takeRequest().headers["Range"]!! }
+            assertEquals(4, smallRanges.size)
+            assertTrue(smallTarget.readBytes().contentEquals(bytes))
+        }
+    }
+
+    @Test
+    fun `falls back to a full stream when a segment reports a different asset size`() = runTest {
+        val bytes = apkBytes(16 * 1024)
+        MockWebServer().use { server ->
+            server.dispatcher = object : mockwebserver3.Dispatcher() {
+                override fun dispatch(request: mockwebserver3.RecordedRequest): MockResponse {
+                    val range = request.headers["Range"]
+                        ?: return MockResponse.Builder().body(Buffer().write(bytes)).build()
+                    val (from, to) = range.removePrefix("bytes=").split("-").map { it.toLong() }
+                    // The asset was replaced with a differently sized file between check and
+                    // download: splicing these bytes into the .part would corrupt the APK.
+                    return MockResponse.Builder()
+                        .code(206)
+                        .addHeader("Content-Range", "bytes $from-$to/${bytes.size + 100}")
+                        .body(Buffer().write(bytes.copyOfRange(from.toInt(), to.toInt() + 1)))
+                        .build()
+                }
+            }
+            server.start()
+            val target = File(tmp.newFolder(), "update.apk")
+            val downloader = ApkDownloader(
+                OkHttpClient(),
+                progressIntervalBytes = 1024,
+                segmentCount = 4,
+                minSegmentTotalBytes = 1024,
+            )
+
+            val result = downloader.download(
+                server.url("/release.apk").toString(),
+                target,
+                bytes.size.toLong(),
+            )
+
+            assertEquals(target, result)
+            assertTrue(target.readBytes().contentEquals(bytes))
+            val requests = (1..server.requestCount).map { server.takeRequest() }
+            assertTrue(
+                "a stale segment must trigger a full-stream retry from zero",
+                requests.any { it.headers["Range"] == null },
+            )
+        }
+    }
+
     /**
      * A byte-exact, *valid* APK fixture: a real ZIP whose central directory the SDK's integrity
      * check can read. Tests assert both the exact byte count and content equality after ranged
