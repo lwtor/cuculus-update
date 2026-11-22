@@ -82,12 +82,12 @@ val result = ArtifactRepoProvisioner.ensureRepository(
 
 `sample` 已接入双源切换：页面顶部「更新源配置」区可切「当前仓库 / 公共制品库」，并覆盖 owner / repository / namespace，点「应用更新源配置」后 `SampleApp` 重建 `Updater`（不同源用不同 `scope`，缓存天然隔离）。
 
-两个测试库都已就绪，装好 demo APK 后两条路径都能开箱实测（demo 本地 `versionCode=17`，release 里的包也是 17，所以 check 会显示 UpToDate；用「下载最新版本」按钮可反复验证读取 + 下载，它不校验版本）：
+两个测试库都已就绪，装好 demo APK 后两条路径都能开箱实测（demo 本地 `versionCode=18`，release 里的包也是 18，所以 check 会显示 UpToDate；用「下载最新版本」按钮可反复验证读取 + 下载，它不校验版本）：
 
-- **测 CURRENT_REPO**：切到「当前仓库」（默认）。读 `lwtor/cuculus-update` 的 latest release `demo-v1.3.5`，asset `cuculus-update-demo-v1.3.5-17.apk`。
-- **测 ARTIFACT_REPO**：切到「公共制品库」——输入框会自动清空，SDK 回落到内置公共库 `lwtor/cuculus-artifacts` + tag 前缀 `cuculus-update`（即 `renderSourceState` / `onModeSwitched` 的默认值）。该库已有 release `cuculus-update/v1.3.5`，asset 同为 `cuculus-update-demo-v1.3.5-17.apk`。
+- **测 CURRENT_REPO**：切到「当前仓库」（默认）。读 `lwtor/cuculus-update` 的 latest release `demo-v1.3.6`，asset `cuculus-update-demo-v1.3.6-18.apk`。
+- **测 ARTIFACT_REPO**：切到「公共制品库」——输入框会自动清空，SDK 回落到内置公共库 `lwtor/cuculus-artifacts` + tag 前缀 `cuculus-update`（即 `renderSourceState` / `onModeSwitched` 的默认值）。该库已有 release `cuculus-update/v1.3.6`，asset 同为 `cuculus-update-demo-v1.3.6-18.apk`。
 
-> 想测「发现新版本 → 下载 → 安装」完整链路：装一个旧包（如 release `demo-v1.3.4` 的 `-16.apk`），再让 check 读到 release 里的 `17`；两条路径的 release 都已备好对应 asset。
+> 想测「发现新版本 → 下载 → 安装」完整链路：装一个旧包（如 release `demo-v1.3.5` 的 `-17.apk`），再让 check 读到 release 里的 `18`；两条路径的 release 都保留了各版本 asset。这两个 v18 包携带 SDK 1.1.1 的下载优化，适合真机验证分段续传 / 大文件 8 段 / 代理恢复。
 
 ## 5. 行为与边界
 
