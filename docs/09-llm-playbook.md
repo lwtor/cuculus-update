@@ -1,6 +1,6 @@
 # 09 · 大模型「一步到位」接入手册（核心）
 
-> **本文是完整知识库的核心。** 目标：一个大模型**只读本文一遍**，就能独立、一步到位把 `dev.cuculus:cuculus-update:1.0.0` 接入任意 Android 项目，不需要来回追问。
+> **本文是完整知识库的核心。** 目标：一个大模型**只读本文一遍**，就能独立、一步到位把 `dev.cuculus:cuculus-update:1.1.0` 接入任意 Android 项目，不需要来回追问。
 > 本文给的是**确定规则、决策树、完整可复制代码、逐条可验证的验收清单**。
 >
 > 前提事实（均以 `updater/src/main/kotlin/dev/cuculus/update/*.kt` 为准）：
@@ -94,7 +94,7 @@ class BuildNumberResolver : ReleaseVersionResolver {
 
 ## ② 可直接复制的完整接入代码模板
 
-> 依赖坐标：`dev.cuculus:cuculus-update:1.0.0`；`compileSdk 37` / `minSdk 26` / JDK 17；AGP 9.3.1 内置 Kotlin（无需单独 Kotlin 插件）。以下 5 个文件覆盖「检查 / 下载 / 安装 / 取消 / 启动预取 + 红点」全链路。
+> 依赖坐标：`dev.cuculus:cuculus-update:1.1.0`；`compileSdk 37` / `minSdk 26` / JDK 17；AGP 9.3.1 内置 Kotlin（无需单独 Kotlin 插件）。以下 5 个文件覆盖「检查 / 下载 / 安装 / 取消 / 启动预取 + 红点」全链路。
 
 ### 2.1 Gradle
 
@@ -132,7 +132,7 @@ android {
 }
 
 dependencies {
-    implementation("dev.cuculus:cuculus-update:1.0.0")
+    implementation("dev.cuculus:cuculus-update:1.1.0")
     // SDK 的 api(...) 只带出 okhttp / kotlinx-coroutines-core；androidx.core 用的是
     // implementation(...)，不会传递给消费方，必须自己声明。后续代码块实际会用到：
     implementation("androidx.appcompat:appcompat:<your-version>")       // §2.5 的 AppCompatActivity
@@ -603,7 +603,7 @@ UpdaterConfig(
 4. §2.5 `POST_NOTIFICATIONS`：API 33+ 用 `registerForActivityResult` 运行时申请（不在 manifest 重复声明）。
 5. 按决策 A/B 选 `versionResolver`；按决策 C 配 `scope`；按决策 F 传共享 `OkHttpClient`（有代理/VPN 必传）。
 6. 需要改通知文案 → §2.6 `UpdaterStrings`。
-7. 本地演练：`sh gradlew :updater:publishToMavenLocal` → 消费方 `mavenLocal()` + `implementation("dev.cuculus:cuculus-update:1.0.0")` → 检查 merged manifest（[11 篇](11-testing-and-build.md)）。
+7. 本地演练：`sh gradlew :updater:publishToMavenLocal` → 消费方 `mavenLocal()` + `implementation("dev.cuculus:cuculus-update:1.1.0")` → 检查 merged manifest（[11 篇](11-testing-and-build.md)）。
 8. 真机验证：走完 §4 验收清单 15 项（含断点续传、取消、R8 release、API 26/33/34+ 矩阵）。
 9. 若是 venera-native 迁移：读 [07 篇](07-migration.md)，**记住旧 `data/update` 验证通过后才删**。
 

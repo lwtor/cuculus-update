@@ -1,6 +1,6 @@
 # cuculus-update
 
-> 独立的 Android 应用内自更新库（AAR，`dev.cuculus:cuculus-update:1.0.0`，包名 `dev.cuculus.update`，Apache-2.0）。从 GitHub Releases 读取最新发布、挑选 APK、断点续传下载（WorkManager 前台 + 通知）、经 FileProvider 交给系统安装器；消费者 App 无需声明任何权限 / 服务 / provider，全部由库 manifest 自动合并。Cuculus 工具系列的 `update` 成员（杜鹃巢寄生），命名刻意不绑定 Android / GitHub，为后续 KMP / Flutter 扩展留位。
+> 独立的 Android 应用内自更新库（AAR，`dev.cuculus:cuculus-update:1.1.0`，包名 `dev.cuculus.update`，Apache-2.0）。从 GitHub Releases 读取最新发布、挑选 APK、断点续传下载（WorkManager 前台 + 通知）、经 FileProvider 交给系统安装器；消费者 App 无需声明任何权限 / 服务 / provider，全部由库 manifest 自动合并。支持通过 `sourceMode` 在「当前仓库」与「外置公共制品库」（tag 前缀区分多 App，发布侧幂等建库）之间二选一。Cuculus 工具系列的 `update` 成员（杜鹃巢寄生），命名刻意不绑定 Android / GitHub，为后续 KMP / Flutter 扩展留位。
 
 本仓库提供一份「完整知识库」，目标是让大模型只读一遍即可一步到位把本 SDK 接入任意 Android 项目。**接入前必读 `docs/09-llm-playbook.md`**（决策树 + 可直接复制的完整代码 + 验收清单）与 `docs/02-integration.md`（一页式接入）；改代码前先读 `AGENTS.md`。
 
@@ -15,6 +15,7 @@
 - [docs/04-configuration.md](docs/04-configuration.md): 配置与版本编码——`UpdaterConfig` 每个字段、`scope` 隔离、`versionResolver` 选型、versionCode 单调规则。
 - [docs/05-release-contract.md](docs/05-release-contract.md): 发布契约与检查清单——App 维护者发布 Release 时必须遵守的 asset 命名、签名一致、多 asset 挑选等约定。
 - [docs/09-llm-playbook.md](docs/09-llm-playbook.md): ★ 大模型「一步到位」接入手册——决策树、完整可复制代码模板、明确禁止事项、验收清单、常见误判、最小改动/完整集成两条路径。
+- [docs/12-artifact-repo.md](docs/12-artifact-repo.md): 公共制品库与双源更新——用 `sourceMode` 在「当前仓库」与「外置公共制品库」间二选一，tag 前缀区分多 App，发布侧 `ArtifactRepoProvisioner` 幂等建库，demo 双源切换测试。
 
 ## Optional
 

@@ -70,7 +70,7 @@ android {
 }
 
 dependencies {
-    implementation("dev.cuculus:cuculus-update:1.0.0")
+    implementation("dev.cuculus:cuculus-update:1.1.0")
 
     // 必须：SDK 用 api(kotlinx-coroutines-core:1.11.0) 暴露 Flow/StateFlow，
     // 但 Android 上的 Dispatchers.Main 实现来自 coroutines-android，需显式同版本引入。

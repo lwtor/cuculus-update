@@ -41,7 +41,7 @@ dependencyResolutionManagement {
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("dev.cuculus:cuculus-update:1.0.0")
+    implementation("dev.cuculus:cuculus-update:1.1.0")
 }
 ```
 
@@ -142,6 +142,19 @@ still exists and still starts with the ZIP local file header; a stale record is 
 | `scope` | `self_update` | namespaces cache dir, SharedPreferences, notification channel and unique work name |
 | `versionResolver` | `AssetNameSuffix()` | maps a release to the Android versionCode |
 | `strings` | Chinese | notification channel name/description, title and `String.format` progress pattern |
+| `sourceMode` | `CURRENT_REPO` | `CURRENT_REPO` reads this repo's latest release; `ARTIFACT_REPO` reads a shared public artifact repository |
+| `artifactRepo` | `null` | artifact repo coordinates; `null` uses the built-in `lwtor/cuculus-artifacts` |
+| `artifactNamespace` | `null` | tag prefix inside a shared repo (`video-archive/`); `null` uses `repository` |
+| `apiBaseUrl` | `https://api.github.com` | override for GitHub Enterprise |
+
+### Update sources
+
+By default the updater reads the latest release of `owner`/`repository` (unchanged from earlier
+versions). Set `sourceMode = UpdateSourceMode.ARTIFACT_REPO` to read a **shared public artifact
+repository** instead — one repo aggregates many apps' APKs, separated by tag prefix
+(`video-archive/v1.9.0`). All fields are optional and defaulted, so existing integrations are
+unaffected. Full guide: [`docs/12-artifact-repo.md`](docs/12-artifact-repo.md). The `sample` app
+has a source-switcher UI for testing both modes on a device.
 
 ### Version resolution
 

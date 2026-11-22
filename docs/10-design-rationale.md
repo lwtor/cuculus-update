@@ -163,7 +163,7 @@ authority 用 `${applicationId}.updater` 而不是写死字符串，保证「man
 
 | 设计文档（计划） | 本仓库实际 |
 |---|---|
-| group `dev.veneranative`，artifact `updater` | `dev.cuculus:cuculus-update:1.0.0` |
+| group `dev.veneranative`，artifact `updater` | `dev.cuculus:cuculus-update:1.1.0` |
 | 包名 `dev.veneranative.updater` | `dev.cuculus.update` |
 | `SelfUpdateService` / `SelfUpdateGateway` | `Updater` / `UpdateGateway` |
 | `SelfUpdateCheck` / `SelfUpdateStatus` | `UpdateCheck` / `UpdateStatus` |

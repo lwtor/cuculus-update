@@ -201,7 +201,7 @@ dependencyResolutionManagement {
 ```kotlin
 // ③ 消费方 app/build.gradle.kts
 dependencies {
-    implementation("dev.cuculus:cuculus-update:1.0.0")
+    implementation("dev.cuculus:cuculus-update:1.1.0")
 }
 ```
 

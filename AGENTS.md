@@ -7,7 +7,7 @@
 - **cuculus-update** 是一个**独立的 Android 自更新库（AAR）**：从 GitHub Releases 读取最新发布、挑选 APK、断点续传下载（WorkManager 前台 + 通知）、经 FileProvider 交给系统安装器。
 - 它是 **Cuculus 工具系列**的 `update` 成员（命名取自杜鹃巢寄生：把新版本这颗蛋下到宿主窝里让宿主孵化）。命名与 API **刻意不绑定 Android / GitHub 平台**，为后续 KMP、Flutter 扩展留位——因此**不要**把 `dev.cuculus.update` 改成带 `android` 或 `venera` 字样的包名。
 - 源项目为 [Venera Native](https://github.com/lwtor/venera-native)（见 `NOTICE`），本仓库是其自更新实现的**可配置、可发布**抽取版；Apache-2.0。
-- Maven 坐标：`dev.cuculus:cuculus-update:1.0.0`；Kotlin 包名：`dev.cuculus.update`。
+- Maven 坐标：`dev.cuculus:cuculus-update:1.1.0`；Kotlin 包名：`dev.cuculus.update`。
 - **消费方零清单负担**：6 个权限、`SystemForegroundService`、`FileProvider` 全部由库 manifest 合并，App 不需要声明任何权限 / 服务 / provider。
 
 ## 2. 目录地图
@@ -48,8 +48,9 @@ cuculus-update/
 |---|---|---|
 | `Updater.kt` | public | 门面 `Updater.create(...)`、`status`、`checkAndPrefetch` |
 | `UpdateGateway.kt` | public | `UpdateGateway` 接口 + `UpdateCheck` / `UpdateStatus` 密封类型 |
-| `UpdaterConfig.kt` | public | `UpdaterConfig` / `UpdaterStrings` / `ReleaseVersionResolver` |
-| `ReleaseApi.kt` | public 数据类 + internal 实现 | `ReleaseInfo` / `ReleaseAsset`；GitHub `releases/latest` 解析 |
+| `UpdaterConfig.kt` | public | `UpdaterConfig` / `UpdaterStrings` / `ReleaseVersionResolver` / `UpdateSourceMode` / `ArtifactRepoRef` / 默认常量 |
+| `ReleaseApi.kt` | public 数据类 + internal 实现 | `ReleaseInfo` / `ReleaseAsset`；GitHub `releases/latest` 与 `latestReleaseMatching`（制品库 tag 前缀筛选 + 分页）解析 |
+| `ArtifactRepoProvisioner.kt` | public object | 发布侧幂等建公开仓库（GET 命中即跳过，404 才 POST）；**只在 CI 调用，App 运行时禁用** |
 | `ReleaseSelection.kt` | internal | 挑 APK、版本比较、文件名 sanitize |
 | `ApkDownloader.kt` | public 数据类 + internal 实现 | `UpdateProgress`；续传 / 代理回退 / ZIP 头校验 / 原子改名 |
 | `ApkInstaller.kt` | public 结果类型 + internal 实现 | `InstallResult`；FileProvider + ACTION_VIEW |
@@ -61,7 +62,7 @@ cuculus-update/
 | `UpdaterPaths.kt` | internal | `updaterCacheDir()` — **唯一的缓存目录真源** |
 | `UpdaterException.kt` | public | `UpdaterException` / `ReleaseApiException` / `DownloadException` |
 
-`updater/src/test/kotlin/dev/cuculus/update/`：4 个测试类、29 例，见 [`docs/11-testing-and-build.md`](docs/11-testing-and-build.md)。
+`updater/src/test/kotlin/dev/cuculus/update/`：6 个测试类、43 例，见 [`docs/11-testing-and-build.md`](docs/11-testing-and-build.md)。
 
 ## 3. 构建 / 测试命令
 
@@ -97,6 +98,7 @@ sh gradlew clean --console=plain
 7. **`REQUEST_INSTALL_PACKAGES` 与 `POST_NOTIFICATIONS` 语义不要改**。前者是 normal 权限（无运行时弹窗，用户仍逐次确认安装），后者虽由库声明、仍需在 API 33+ 运行时授权；未授权时下载照常进行、只是进度通知被隐藏。
 8. **不做静默安装、不内置 UI、不发布 Maven Central**（见 [`docs/10-design-rationale.md`](docs/10-design-rationale.md)）。
 9. **`Updater.create()` 只能在已 attach 的 Context 上调用**。`Updater` 构造立即读 `context.applicationContext` 并 `getSharedPreferences`；`UpdaterConfig` 惯例用 `"$packageName.updater"` 拼 authority。而 `Activity` 在 `attachBaseContext()` 之前 `mBase` 为 null，把 `private val updater = Updater.create(this, ...)` 写在**属性初始化器**里会直接 NPE、App 启动即崩。必须放 `Application.onCreate()`（推荐：进程级单例，也让冷启动恢复的 worker 拿到 `WorkerHttp.client`），最晚也要在 `Activity.onCreate()` 里传 `applicationContext`。sample 用 `SampleApp : Application()` + manifest `android:name=".SampleApp"` 演示正确写法，改动此处必须同步更新 README Quick start 与 09 篇禁止事项。
+10. **公共制品库匿名只读，建库 token 绝不进 App**。`UpdateSourceMode.ARTIFACT_REPO` 下 App 全程匿名读 public 仓库，不得在 App 代码路径注入任何 token；`ArtifactRepoProvisioner.ensureRepository()` 是**发布侧 CI 工具**（token 来自 CI secrets），禁止在 App 运行时调用。tag 前缀匹配是 `<namespace>/` 严格前缀。双源共存时给不同源配不同 `scope`，避免一个源缓存的 APK 被另一个源命中。详见 `docs/12-artifact-repo.md`。
 
 ## 5. 提交规范
 
