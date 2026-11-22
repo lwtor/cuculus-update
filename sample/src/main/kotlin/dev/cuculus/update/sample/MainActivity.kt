@@ -8,13 +8,16 @@ import android.os.Bundle
 import android.view.View
 import android.view.WindowInsets
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ProgressBar
+import android.widget.RadioGroup
 import android.widget.TextView
 import dev.cuculus.update.InstallResult
 import dev.cuculus.update.UpdateCheck
 import dev.cuculus.update.UpdateProgress
 import dev.cuculus.update.UpdateStatus
 import dev.cuculus.update.Updater
+import dev.cuculus.update.UpdateSourceMode
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
@@ -48,6 +51,11 @@ class MainActivity : Activity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var downloadButton: Button
     private lateinit var installButton: Button
+    private lateinit var sourceModeGroup: RadioGroup
+    private lateinit var ownerInput: EditText
+    private lateinit var repoInput: EditText
+    private lateinit var namespaceInput: EditText
+    private lateinit var sourceSummaryText: TextView
 
     private var downloadedApk: File? = null
 
@@ -66,6 +74,11 @@ class MainActivity : Activity() {
         progressBar = findViewById(R.id.progress_bar)
         downloadButton = findViewById(R.id.download_button)
         installButton = findViewById(R.id.install_button)
+        sourceModeGroup = findViewById(R.id.source_mode_group)
+        ownerInput = findViewById(R.id.owner_input)
+        repoInput = findViewById(R.id.repo_input)
+        namespaceInput = findViewById(R.id.namespace_input)
+        sourceSummaryText = findViewById(R.id.source_summary_text)
 
         versionText.text = getString(
             R.string.version_format,
@@ -73,6 +86,10 @@ class MainActivity : Activity() {
             BuildConfig.VERSION_CODE,
         )
 
+        // Reflect the source SampleApp actually built (survives rotation / cold start).
+        renderSourceState((application as SampleApp).sourceState)
+
+        findViewById<Button>(R.id.apply_source_button).setOnClickListener { applySourceConfig() }
         findViewById<Button>(R.id.check_button).setOnClickListener { checkForUpdate() }
         downloadButton.setOnClickListener { onDownloadButtonClick() }
         installButton.setOnClickListener { installUpdate() }
@@ -335,6 +352,66 @@ class MainActivity : Activity() {
             asset.contentType = ${check.asset.contentType ?: "-"}
             asset.downloadUrl = ${check.asset.downloadUrl}
         """.trimIndent()
+    }
+
+    /** Prefills the config form and the human-readable summary from a source state. */
+    private fun renderSourceState(state: SampleApp.SourceState) {
+        sourceModeGroup.check(
+            if (state.mode == UpdateSourceMode.ARTIFACT_REPO) {
+                R.id.source_mode_artifact
+            } else {
+                R.id.source_mode_current
+            },
+        )
+        ownerInput.setText(state.owner)
+        repoInput.setText(state.repository)
+        namespaceInput.setText(state.namespace)
+        updateSourceSummary(state)
+    }
+
+    private fun updateSourceSummary(state: SampleApp.SourceState) {
+        val summary = when (state.mode) {
+            UpdateSourceMode.CURRENT_REPO -> getString(
+                R.string.source_summary_current,
+                state.owner.ifBlank { "lwtor" },
+                state.repository.ifBlank { "cuculus-update" },
+            )
+
+            UpdateSourceMode.ARTIFACT_REPO -> {
+                val owner = state.owner.ifBlank { "lwtor" }
+                val repo = state.repository.ifBlank { "（内置默认公共库）" }
+                val namespace = state.namespace.ifBlank { state.repository.ifBlank { "repository" } }
+                getString(R.string.source_summary_artifact, owner, repo, namespace)
+            }
+        }
+        sourceSummaryText.text = getString(R.string.source_summary, summary)
+    }
+
+    /**
+     * Rebuilds the process-wide Updater with the source chosen in the form. A different source gets
+     * a different SDK scope, so any APK cached under the previous source is deliberately not reused;
+     * reset the local install state and progress to match. check/download then read through the
+     * new Updater automatically (the [updater] getter delegates to SampleApp).
+     */
+    private fun applySourceConfig() {
+        val mode = if (sourceModeGroup.checkedRadioButtonId == R.id.source_mode_artifact) {
+            UpdateSourceMode.ARTIFACT_REPO
+        } else {
+            UpdateSourceMode.CURRENT_REPO
+        }
+        val state = SampleApp.SourceState(
+            mode = mode,
+            owner = ownerInput.text.toString().trim(),
+            repository = repoInput.text.toString().trim(),
+            namespace = namespaceInput.text.toString().trim(),
+        )
+        (application as SampleApp).rebuildUpdater(state)
+        downloadedApk = null
+        installButton.isEnabled = false
+        progressBar.progress = 0
+        logText.text = ""
+        updateSourceSummary(state)
+        showStatus(getString(R.string.source_applied))
     }
 
     private fun showStatus(message: String) {

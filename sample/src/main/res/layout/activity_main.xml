@@ -37,6 +37,69 @@
             android:textSize="18sp"
             android:textStyle="bold" />
 
+        <!-- Source configuration: switch between the app's own repository and a shared public
+             artifact repository, and override owner/repo/namespace to test any layout. -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/source_config_label"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/source_mode_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/source_mode_current"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="@string/source_current" />
+
+            <RadioButton
+                android:id="@+id/source_mode_artifact"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/source_artifact" />
+        </RadioGroup>
+
+        <EditText
+            android:id="@+id/owner_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_owner"
+            android:inputType="text" />
+
+        <EditText
+            android:id="@+id/repo_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_repo"
+            android:inputType="text" />
+
+        <EditText
+            android:id="@+id/namespace_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_namespace"
+            android:inputType="text" />
+
+        <Button
+            android:id="@+id/apply_source_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/apply_source" />
+
+        <TextView
+            android:id="@+id/source_summary_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textSize="12sp" />
+
         <Button
             android:id="@+id/check_button"
             android:layout_width="match_parent"

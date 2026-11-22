@@ -9,4 +9,16 @@
     <string name="install">安装</string>
     <string name="status_idle">尚未检查更新</string>
     <string name="log_label">最近一次检查结果</string>
+
+    <string name="source_config_label">更新源配置</string>
+    <string name="source_current">当前仓库</string>
+    <string name="source_artifact">公共制品库</string>
+    <string name="hint_owner">owner（留空用默认 lwtor）</string>
+    <string name="hint_repo">repository（留空：当前库用 cuculus-update；制品库用默认公共库）</string>
+    <string name="hint_namespace">tag 命名空间前缀（如 video-archive，留空用 repository）</string>
+    <string name="apply_source">应用更新源配置</string>
+    <string name="source_summary">当前更新源：%1$s</string>
+    <string name="source_summary_current">当前仓库 %1$s/%2$s</string>
+    <string name="source_summary_artifact">公共制品库 %1$s/%2$s · tag 前缀「%3$s」</string>
+    <string name="source_applied">已切换更新源，缓存与下载记录按源隔离</string>
 </resources>

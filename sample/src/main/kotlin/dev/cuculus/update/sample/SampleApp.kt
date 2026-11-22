@@ -1,16 +1,18 @@
 package dev.cuculus.update.sample
 
 import android.app.Application
+import dev.cuculus.update.ArtifactRepoRef
+import dev.cuculus.update.UpdateSourceMode
 import dev.cuculus.update.Updater
 import dev.cuculus.update.UpdaterConfig
 
 /**
  * Builds the [Updater] once per process, from an Application context that is already attached.
  *
- * **This demo updates itself.** `repository` points at this SDK's own repository because that is
- * where *this app's* APKs are published. Pointing it at some other app's repository is the classic
- * integration mistake: the check would compare against that app's versionCode and download an APK
- * with a different applicationId/signature, so the install step could never succeed.
+ * **This demo updates itself.** In [UpdateSourceMode.CURRENT_REPO] (the default) `repository`
+ * points at this SDK's own repository because that is where *this app's* APKs are published.
+ * Switch to [UpdateSourceMode.ARTIFACT_REPO] from the UI to read a tagged release from a shared
+ * public artifact repository instead (see [buildUpdaterFor]).
  *
  * Version scheme: demo assets are named `cuculus-update-demo-v<name>-<versionCode>.apk`, so the
  * SDK's default `AssetNameSuffix()` reads a plain increasing integer that lives in the same number
@@ -25,20 +27,59 @@ import dev.cuculus.update.UpdaterConfig
  */
 class SampleApp : Application() {
 
+    /** The source the demo currently uses; the UI can rebuild the Updater when it changes. */
+    data class SourceState(
+        val mode: UpdateSourceMode = UpdateSourceMode.CURRENT_REPO,
+        val owner: String = "lwtor",
+        val repository: String = "cuculus-update",
+        val namespace: String = "",
+    )
+
+    @Volatile
+    var sourceState: SourceState = SourceState()
+        private set
+
     lateinit var updater: Updater
         private set
 
     override fun onCreate() {
         super.onCreate()
-        updater = Updater.create(
-            applicationContext,
-            UpdaterConfig(
-                owner = "lwtor",
-                // The repository that publishes THIS app's APKs — not the SDK source, not another app.
-                repository = "cuculus-update",
-                fileProviderAuthority = "$packageName.updater",
-                // default versionResolver = AssetNameSuffix(); see the class KDoc above.
-            ),
+        rebuildUpdater(sourceState)
+    }
+
+    /**
+     * Rebuilds the process-wide [Updater] for a new source. Each mode gets its own [UpdaterConfig.scope]
+     * so a cached APK from one source never satisfies the other — this is exactly the multi-source
+     * isolation the SDK promises, exercised here for real.
+     */
+    fun rebuildUpdater(state: SourceState): Updater {
+        sourceState = state
+        updater = Updater.create(applicationContext, buildUpdaterConfig(state))
+        return updater
+    }
+
+    private fun buildUpdaterConfig(state: SourceState): UpdaterConfig = when (state.mode) {
+        UpdateSourceMode.CURRENT_REPO -> UpdaterConfig(
+            owner = state.owner.ifBlank { "lwtor" },
+            repository = state.repository.ifBlank { "cuculus-update" },
+            fileProviderAuthority = "$packageName.updater",
+            scope = "demo_current",
+        )
+
+        UpdateSourceMode.ARTIFACT_REPO -> UpdaterConfig(
+            owner = state.owner.ifBlank { "lwtor" },
+            repository = state.repository.ifBlank { "cuculus-update" },
+            fileProviderAuthority = "$packageName.updater",
+            scope = "demo_artifact",
+            sourceMode = UpdateSourceMode.ARTIFACT_REPO,
+            // Blank fields fall back to the SDK's built-in public artifact repo + this app's
+            // repository as the tag namespace; the UI lets the tester override all three.
+            artifactRepo = if (state.owner.isBlank() && state.repository.isBlank()) {
+                null
+            } else {
+                ArtifactRepoRef(state.owner.trim(), state.repository.trim())
+            },
+            artifactNamespace = state.namespace.ifBlank { null },
         )
     }
 }
