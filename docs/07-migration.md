@@ -30,7 +30,7 @@
 |---|---|---|
 | 模块 | `:data:update`（`venera.android.library` 约定插件） | `:updater`（`com.android.library` + `maven-publish`） |
 | 包名 | `dev.veneranative.data.update` | `dev.cuculus.update` |
-| 依赖引入 | 工程内 `project(":data:update")` | `implementation("dev.cuculus:cuculus-update:1.1.0")` |
+| 依赖引入 | 工程内 `project(":data:update")` | `implementation("dev.cuculus:cuculus-update:1.1.1")` |
 | 发布 | 无 | `mavenLocal` / 内网仓库；`updaterSdkVersion=1.0.0` |
 | 对外可见性 | 大量实现类是 `public` / `class` | 实现类收敛为 `internal`，仅门面 + 数据类 + 结果类型 + worker 为 public |
 
@@ -131,7 +131,7 @@
 
 ## 3. 分步迁移流程（阶段 B 允许开始后按顺序执行）
 
-1. **接入依赖**：`app/build.gradle.kts` 加 `implementation("dev.cuculus:cuculus-update:1.1.0")`（本地演练先 `mavenLocal()`，见 [11 篇](11-testing-and-build.md)）。保留旧 `project(":data:update")` 依赖暂不删，让新旧并存。
+1. **接入依赖**：`app/build.gradle.kts` 加 `implementation("dev.cuculus:cuculus-update:1.1.1")`（本地演练先 `mavenLocal()`，见 [11 篇](11-testing-and-build.md)）。保留旧 `project(":data:update")` 依赖暂不删，让新旧并存。
 2. **确认清单合并**：编译后检查 app 的 merged manifest，确认 6 权限 / service / `${applicationId}.updater` provider 出现且**只有一份** authority；此时**先不要**删 app 里的旧声明，避免一步跨太大——先用 `tools:node` 冲突检测确认，再在步骤 6 统一清理。
 3. **装配切换（AppGraph）**：见 §4，改为 `Updater.create(...)`，删除 `UpdateEnvironment.configure(...)`，把 `selfUpdateService` 字段换成 `updater`。
 4. **UI 调用点切换（feature/profile）**：见 §5，把 `SelfUpdateGateway` → `UpdateGateway`、类型与方法名全部替换。

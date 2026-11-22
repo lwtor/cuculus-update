@@ -1,6 +1,6 @@
 # cuculus-update 完整知识库 · 索引
 
-本文件是整个 `dev.cuculus:cuculus-update:1.1.0` 知识库的**总索引**。目标：一个大模型（或一名工程师）**只读一遍**就能把该 SDK 独立、一步到位接入到任意 Android 项目，不用来回追问。
+本文件是整个 `dev.cuculus:cuculus-update:1.1.1` 知识库的**总索引**。目标：一个大模型（或一名工程师）**只读一遍**就能把该 SDK 独立、一步到位接入到任意 Android 项目，不用来回追问。
 
 - 仓库：`lwtor/cuculus-update`（公开，main 分支），Apache-2.0，源自 Venera Native 的自更新能力（见 `NOTICE`）。
 - 定位：Cuculus 工具系列的 **update** 成员（杜鹃巢寄生意象：把新版本这颗「蛋」下到宿主「窝」里，让宿主孵化）。命名与 API 刻意不绑定平台，便于系列日后扩展到 KMP / Flutter。
@@ -15,7 +15,7 @@
 
 | # | 必须做什么 | 绝对不要做什么 | 违反后果 |
 |---|---|---|---|
-| 1 | 只加一行 `implementation("dev.cuculus:cuculus-update:1.1.0")` | 不要在 App 的 `AndroidManifest.xml` 里声明权限 / Service / FileProvider | 清单合并冲突；或误以为要自己声明而重复配置 |
+| 1 | 只加一行 `implementation("dev.cuculus:cuculus-update:1.1.1")` | 不要在 App 的 `AndroidManifest.xml` 里声明权限 / Service / FileProvider | 清单合并冲突；或误以为要自己声明而重复配置 |
 | 2 | `fileProviderAuthority` 必须等于 `${applicationId}.updater` | 不要随意改这个字符串 | `install()` 返回 `InstallResult.Failure("unable to expose the APK: ...")` |
 | 3 | 在 app 模块开启 `buildFeatures { buildConfig = true }` 后读 `BuildConfig.VERSION_CODE.toLong()` | 不要把 `versionName`（字符串）当作 versionCode 传进去 | AGP 8+ 默认不生成 BuildConfig；类型不符直接编译失败 |
 | 4 | 让「发布端 versionCode」与「App 的 `versionCode`」使用**同一套编码**，且发布端严格更大 | 不要只改 tag 文本却不改 versionCode | `check()` 永远返回 `UpToDate`，更新不触发 |
@@ -50,6 +50,7 @@
 | `10-design-rationale.md` | 设计缘由 | 把源项目 SDK 抽取设计结论整理成简体中文，解释「为什么这样设计」 | 想理解架构取舍时 |
 | `11-testing-and-build.md` | 测试与构建 | 环境要求、完整命令清单、manifest 合并验证、真机验证、mavenLocal 演练、单测逐项说明、CI 建议 | 构建 / 验证 / 发布 AAR 时 |
 | `12-artifact-repo.md` | 公共制品库与双源更新 | 用 `sourceMode` 在「当前仓库 / 外置公共制品库」二选一、tag 前缀区分多 App、发布侧幂等建库、demo 双源切换 | 接入方要聚合多 App 更新或主仓库不可达时 |
+| `13-download-performance.md` | 下载性能与代理恢复 | 分段并发与段数自适应、`.part` 续传不退化、Content-Range 一致性校验、进程被杀后代理端点恢复 | 下载慢 / 优化下载 / 接入方配代理时 |
 | `../llms.txt` | 根级精简摘要 | 面向大模型的仓库级极简说明 | 快速了解仓库全貌时 |
 | `../AGENTS.md` | 根级 Agent 入口 | 第一次进入本仓库的 AI / 工程师入口，读完再动手 | 首次接触本仓库时 |
 
@@ -95,5 +96,5 @@ sh gradlew :updater:testDebugUnitTest :updater:assembleRelease :sample:assembleD
 
 - `gradlew` 无执行位，必须用 `sh gradlew`。
 - JDK 17：需自行配置 `JAVA_HOME` 指向本机 JDK 17（例如 Amazon Corretto 17）。
-- 单测 6 个类共 **43 例**：`ReleaseSelectionTest` / `ApkDownloaderTest` / `GitHubReleaseApiTest`（含制品库前缀筛选与分页）/ `UpdateStateStoreTest` / `UpdateSourceConfigTest` / `ArtifactRepoProvisionerTest`；逐项覆盖说明见 `11-testing-and-build.md`。
+- 单测 7 个类共 **49 例**：`ReleaseSelectionTest` / `ApkDownloaderTest` / `GitHubReleaseApiTest`（含制品库前缀筛选与分页）/ `UpdateStateStoreTest` / `UpdateSourceConfigTest` / `ArtifactRepoProvisionerTest` / `WorkerHttpTest`；逐项覆盖说明见 `11-testing-and-build.md`。
 - 本地发布到 Maven：`sh gradlew :updater:publishToMavenLocal --console=plain`。

@@ -1,6 +1,6 @@
 # 11 · 测试与构建
 
-> 进阶篇。本文给出本仓库的环境要求、完整命令清单、manifest 合并验证、真机验证、mavenLocal 接入演练、29 个单测逐项覆盖说明与 CI 建议。
+> 进阶篇。本文给出本仓库的环境要求、完整命令清单、manifest 合并验证、真机验证、mavenLocal 接入演练、49 个单测逐项覆盖说明与 CI 建议。
 >
 > 事实来源：`build.gradle.kts`、`settings.gradle.kts`、`gradle.properties`、`gradle/libs.versions.toml`、`gradle/wrapper/gradle-wrapper.properties`、`updater/build.gradle.kts`、`updater/consumer-rules.pro`、`updater/src/main/AndroidManifest.xml`、`updater/src/main/res/xml/updater_file_paths.xml`，以及 4 个测试类源码。
 >
@@ -40,7 +40,7 @@ export JAVA_HOME=/path/to/jdk-17   # 替换为你本机 JDK 17 的实际路径
 # ① 一次性全量（单测 + AAR + sample APK）—— 推荐作为改代码后的回归
 sh gradlew :updater:testDebugUnitTest :updater:assembleRelease :sample:assembleDebug --console=plain
 
-# ② 单独：29 例 JVM 单测
+# ② 单独：49 例 JVM 单测
 sh gradlew :updater:testDebugUnitTest --console=plain
 #    单测报告：updater/build/reports/tests/testDebugUnitTest/index.html
 
@@ -201,7 +201,7 @@ dependencyResolutionManagement {
 ```kotlin
 // ③ 消费方 app/build.gradle.kts
 dependencies {
-    implementation("dev.cuculus:cuculus-update:1.1.0")
+    implementation("dev.cuculus:cuculus-update:1.1.1")
 }
 ```
 
@@ -222,13 +222,13 @@ find . -path '*/build/intermediates/*' -name AndroidManifest.xml | grep -i merge
 
 ---
 
-## 6. 29 个单测分别覆盖什么
+## 6. 49 个单测分别覆盖什么
 
-`updater/src/test/kotlin/dev/cuculus/update/` 共 **4 个测试类、29 例**（12 + 3 + 10 + 4）。命令：`sh gradlew :updater:testDebugUnitTest --console=plain`。
+`updater/src/test/kotlin/dev/cuculus/update/` 共 **7 个测试类、49 例**（15 + 7 + 10 + 5 + 5 + 4 + 3）。命令：`sh gradlew :updater:testDebugUnitTest --console=plain`。
 
 下表按测试类分组，用例名就是源码里的反引号函数名，可直接全局搜索定位。**刻意不编号**：以前每加一个用例都要把后面二十多行整体重排，改一次错一次。
 
-### `ApkDownloaderTest`（12 例，下载语义）
+### `ApkDownloaderTest`（15 例，下载语义）
 
 | 用例 | 覆盖内容 |
 |---|---|
@@ -244,8 +244,11 @@ find . -path '*/build/intermediates/*' -name AndroidManifest.xml | grep -i merge
 | `reconnects a stalled segment and continues from its last byte` | 服务端承诺 `0-1023` 却只给 512 字节就断流 → 重试必须是 `Range: bytes=512-1023`，**不能重发 `0-1023`**。重发会把已落盘的 512 字节再累加一遍，`downloaded != total` 触发截断判定，整体退回单流从头下——这正是「卡在 80% 之后进度归零重来」的机制 |
 | `resumes a single stream that ends early instead of restarting` | 单流（`sizeBytes` 未知）收到 `Content-Range` 声明 4096 却只来 2048 → 下一请求带 `Range: bytes=2048-` 而不是从头开始，最终字节一致 |
 | `cancelling the caller aborts the transfer instead of finishing it` | 在进度回调里取消协程：阻塞式 socket 读自己看不到取消，靠每读满一个 buffer 调一次 `ensureActive()` 才能亚秒级停下；预分配出空洞的 `.part` 必须被删除，且不能产出 APK |
+| `resumes a partial download with parallel segments instead of one stream` | `.part` 已有前半段且给出总大小 → 剩余区间仍按 4 段并发请求，没有任何段重复下载已保存的前缀，产物字节完整。**锁住「中断后不退化成单流」这个修复** |
+| `uses eight segments for a large asset and four for a small one by default` | 大文件档（超过阈值）发 8 个 Range、小文件发 4 个；产物都字节一致 |
+| `falls back to a full stream when a segment reports a different asset size` | 分段的 `Content-Range` 声明了不同的总长度（资源被替换）→ 放弃并行、回落到无 Range 的完整流重下，产物正确 |
 
-### `GitHubReleaseApiTest`（3 例，JSON 解析与错误映射）
+### `GitHubReleaseApiTest`（7 例，JSON 解析与错误映射 + 制品库前缀筛选）
 
 | 用例 | 覆盖内容 |
 |---|---|
@@ -268,7 +271,15 @@ find . -path '*/build/intermediates/*' -name AndroidManifest.xml | grep -i merge
 | `an update needs a strictly larger version code` | `isUpdate`：`>` true、`==` false、`<` false、`null` false |
 | `asset file names are stripped of path characters` | `sanitizeAssetFileName`：`a/b\c.apk → a_b_c.apk`，合法名不变 |
 
-### `UpdateStateStoreTest`（4 例，APK 头校验）
+### `WorkerHttpTest`（3 例，代理端点持久化）
+
+| 用例 | 覆盖内容 |
+|---|---|
+| `round trips an http proxy` | HTTP 代理编码为 `HTTP|host|port` 并可无损解码回相同 type / host / port |
+| `round trips a socks proxy` | SOCKS 代理同样可往返 |
+| `blank or malformed proxy means no proxy` | 空值、缺字段、非数字端口、未知类型、越界端口一律回落「无代理」 |
+
+### `UpdateStateStoreTest`（5 例，APK 头校验 / 状态清理）
 
 | 用例 | 覆盖内容 |
 |---|---|
@@ -308,7 +319,7 @@ steps:
 要点：
 
 - **固定 JDK 17**（`compileOptions` / AGP 9.3.1 要求）；用 `sh gradlew`（本机无执行位）。
-- 每次 PR 跑 §2 ① 的全量命令：29 例单测必须全绿，AAR 与 sample APK 必须能产出。
+- 每次 PR 跑 §2 ① 的全量命令：49 例单测必须全绿，AAR 与 sample APK 必须能产出。
 - **把「AAR 携带 `proguard.txt` 且含 worker keep 规则」作为 CI 断言**，防止 `consumer-rules.pro` 被误删导致 release 崩溃（[08 §7](08-troubleshooting.md)）。
 - 增加一步「模拟消费方」：用 `mavenLocal()` + 一个零清单声明的 scratch app 编译，检查合并清单条目（§3、§5），把「清单合并契约」也纳入回归。
 - 版本号来自 `gradle.properties:updaterSdkVersion`，发布流程只改这一处，不要散改。

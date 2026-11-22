@@ -8,7 +8,7 @@
 
 | 模块 | 角色 |
 |---|---|
-| `:updater` | `com.android.library` + `maven-publish`，产出 `dev.cuculus:cuculus-update:1.1.0` AAR（`singleVariant("release")` + `withSourcesJar()`）。全部实现都在这里。 |
+| `:updater` | `com.android.library` + `maven-publish`，产出 `dev.cuculus:cuculus-update:1.1.1` AAR（`singleVariant("release")` + `withSourcesJar()`）。全部实现都在这里。 |
 | `:sample` | 经典 View 的演示 App（applicationId `dev.cuculus.update.sample`），manifest **故意不声明任何权限 / provider**，用来证明清单合并可用。 |
 | 根 `build.gradle.kts` | 只声明 AGP 9.3.1（`com.android.application` / `com.android.library`，`apply false`）。AGP 9 内置 Kotlin 支持，**不需要**单独的 Kotlin 插件。 |
 
@@ -229,7 +229,7 @@ Idle ──check→Available──▶ UpdateAvailable(versionCode)
 | junit4 4.13.2 / coroutines-test 1.11.0 / okhttp-mockwebserver3 5.5.0 / org.json 20260814 | — | `testImplementation` | JVM 单测；`android.jar` 只带 `org.json` 桩，故补真实实现 |
 
 - 版本号来自版本目录；SDK 自身版本来自 `gradle.properties` 的 `updaterSdkVersion=1.0.0`（`updater/build.gradle.kts:28` `getOrElse("1.0.0")`）。
-- `group = "dev.cuculus"`、`artifactId = "cuculus-update"` → 坐标 `dev.cuculus:cuculus-update:1.1.0`。
+- `group = "dev.cuculus"`、`artifactId = "cuculus-update"` → 坐标 `dev.cuculus:cuculus-update:1.1.1`。
 - 工程要求：Gradle wrapper 9.5.0、JDK 17、AGP 9.3.1（内置 Kotlin，无需单独 Kotlin 插件）、compileSdk 37、minSdk 26。
 
 ### 7.2 清单合并（`updater/src/main/AndroidManifest.xml`）

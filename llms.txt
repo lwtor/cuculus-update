@@ -1,6 +1,6 @@
 # cuculus-update
 
-> 独立的 Android 应用内自更新库（AAR，`dev.cuculus:cuculus-update:1.1.0`，包名 `dev.cuculus.update`，Apache-2.0）。从 GitHub Releases 读取最新发布、挑选 APK、断点续传下载（WorkManager 前台 + 通知）、经 FileProvider 交给系统安装器；消费者 App 无需声明任何权限 / 服务 / provider，全部由库 manifest 自动合并。支持通过 `sourceMode` 在「当前仓库」与「外置公共制品库」（tag 前缀区分多 App，发布侧幂等建库）之间二选一。Cuculus 工具系列的 `update` 成员（杜鹃巢寄生），命名刻意不绑定 Android / GitHub，为后续 KMP / Flutter 扩展留位。
+> 独立的 Android 应用内自更新库（AAR，`dev.cuculus:cuculus-update:1.1.1`，包名 `dev.cuculus.update`，Apache-2.0）。从 GitHub Releases 读取最新发布、挑选 APK、断点续传下载（WorkManager 前台 + 通知）、经 FileProvider 交给系统安装器；消费者 App 无需声明任何权限 / 服务 / provider，全部由库 manifest 自动合并。支持通过 `sourceMode` 在「当前仓库」与「外置公共制品库」（tag 前缀区分多 App，发布侧幂等建库）之间二选一。Cuculus 工具系列的 `update` 成员（杜鹃巢寄生），命名刻意不绑定 Android / GitHub，为后续 KMP / Flutter 扩展留位。
 
 本仓库提供一份「完整知识库」，目标是让大模型只读一遍即可一步到位把本 SDK 接入任意 Android 项目。**接入前必读 `docs/09-llm-playbook.md`**（决策树 + 可直接复制的完整代码 + 验收清单）与 `docs/02-integration.md`（一页式接入）；改代码前先读 `AGENTS.md`。
 
@@ -23,10 +23,11 @@
 - [docs/07-migration.md](docs/07-migration.md): 进阶——从 venera-native `data/update` 迁移到本 SDK 的完整映射表、分步流程、阶段约束（旧代码先不删）、`AboutViewModel` 改造示例、接入验证清单。
 - [docs/08-troubleshooting.md](docs/08-troubleshooting.md): 进阶——无更新/NoInstallableAsset、下载卡住、解析软件包失败、FileProvider authority 冲突、通知不显示、WorkManager 不启动、R8 崩溃、GitHub 403、tag/asset 解析失败、代理、版本回退；每条给检查命令/日志线索/修复方式。
 - [docs/10-design-rationale.md](docs/10-design-rationale.md): 进阶——设计缘由（整理自 venera-native 设计文档）：结论、六处项目耦合、AAR 构建缺口、目标设计、迁移路径、风险与明确不做的事。
-- [docs/11-testing-and-build.md](docs/11-testing-and-build.md): 进阶——环境要求、完整命令清单、manifest 合并验证、真机验证下载与安装、mavenLocal 接入演练、29 个单测逐项覆盖说明、CI 建议。
+- [docs/11-testing-and-build.md](docs/11-testing-and-build.md): 进阶——环境要求、完整命令清单、manifest 合并验证、真机验证下载与安装、mavenLocal 接入演练、49 个单测逐项覆盖说明、CI 建议。
+- [docs/13-download-performance.md](docs/13-download-performance.md): 进阶——分段并发与段数自适应、`.part` 续传不退化成单流、Content-Range 一致性校验、进程被杀后代理端点持久化恢复；解释「下载慢」的定位与优化。
 
 ## Notes
 
 - 正文使用简体中文；代码、标识符、命令、类名保持英文原样。
 - 文档与源码冲突时，**一律以 `updater/src/main/kotlin/dev/cuculus/update/*.kt` 为准**，禁止编造 API；所有 public 签名以 `docs/03-api-reference.md` 为准，`internal` 类型对消费者不可见。
-- `docs/README.md` 是知识库的权威索引；`01`–`05` 为基础篇、`06`–`11` 为进阶篇，文件名如上所列。`09` 因是大模型接入的核心速查入口而列入上面的 `## Docs`（优先阅读），编号上仍属于 `06`–`11` 进阶篇，两处口径不矛盾。
+- `docs/README.md` 是知识库的权威索引；`01`–`05` 为基础篇、`06`–`13` 为进阶篇，文件名如上所列。`09` 因是大模型接入的核心速查入口而列入上面的 `## Docs`（优先阅读），编号上仍属于 `06`–`13` 进阶篇，两处口径不矛盾。

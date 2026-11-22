@@ -7,7 +7,7 @@
 - **cuculus-update** 是一个**独立的 Android 自更新库（AAR）**：从 GitHub Releases 读取最新发布、挑选 APK、断点续传下载（WorkManager 前台 + 通知）、经 FileProvider 交给系统安装器。
 - 它是 **Cuculus 工具系列**的 `update` 成员（命名取自杜鹃巢寄生：把新版本这颗蛋下到宿主窝里让宿主孵化）。命名与 API **刻意不绑定 Android / GitHub 平台**，为后续 KMP、Flutter 扩展留位——因此**不要**把 `dev.cuculus.update` 改成带 `android` 或 `venera` 字样的包名。
 - 源项目为 [Venera Native](https://github.com/lwtor/venera-native)（见 `NOTICE`），本仓库是其自更新实现的**可配置、可发布**抽取版；Apache-2.0。
-- Maven 坐标：`dev.cuculus:cuculus-update:1.1.0`；Kotlin 包名：`dev.cuculus.update`。
+- Maven 坐标：`dev.cuculus:cuculus-update:1.1.1`；Kotlin 包名：`dev.cuculus.update`。
 - **消费方零清单负担**：6 个权限、`SystemForegroundService`、`FileProvider` 全部由库 manifest 合并，App 不需要声明任何权限 / 服务 / provider。
 
 ## 2. 目录地图
@@ -37,7 +37,7 @@ cuculus-update/
 │       ├── AndroidManifest.xml        # 故意不写任何权限 / provider；注册 SampleApp
 │       ├── kotlin/dev/cuculus/update/sample/  # SampleApp（Application.onCreate 建单例）、MainActivity
 │       └── res/values/styles.xml + values-v27/styles.xml  # NoActionBar + edge-to-edge 系统栏
-└── docs/                        # 完整知识库（01–05 基础篇、06–11 进阶篇）
+└── docs/                        # 完整知识库（01–05 基础篇、06–13 进阶篇）
     ├── README.md               # 知识库总目录与阅读顺序
     └── 09-llm-playbook.md      # ★ 大模型一步到位接入手册（决策树 + 完整代码 + 验收）
 ```
@@ -52,17 +52,17 @@ cuculus-update/
 | `ReleaseApi.kt` | public 数据类 + internal 实现 | `ReleaseInfo` / `ReleaseAsset`；GitHub `releases/latest` 与 `latestReleaseMatching`（制品库 tag 前缀筛选 + 分页）解析 |
 | `ArtifactRepoProvisioner.kt` | public object | 发布侧幂等建公开仓库（GET 命中即跳过，404 才 POST）；**只在 CI 调用，App 运行时禁用** |
 | `ReleaseSelection.kt` | internal | 挑 APK、版本比较、文件名 sanitize |
-| `ApkDownloader.kt` | public 数据类 + internal 实现 | `UpdateProgress`；续传 / 代理回退 / ZIP 头校验 / 原子改名 |
+| `ApkDownloader.kt` | public 数据类 + internal 实现 | `UpdateProgress`；分段并发（大文件 8 段）/ `.part` 续传仍分段 / 代理回退 / Content-Range 一致性 / ZIP 头校验 / 原子改名 |
 | `ApkInstaller.kt` | public 结果类型 + internal 实现 | `InstallResult`；FileProvider + ACTION_VIEW |
 | `UpdateStateStore.kt` | internal | `<scope>.updater` SharedPreferences，脏记录清理 |
 | `UpdateDownloadWorker.kt` | **public** | WorkManager `CoroutineWorker`（反射实例化） |
 | `UpdateWorkScheduler.kt` | internal | unique work `<scope>.download`，`REPLACE` |
 | `UpdateNotifier.kt` | internal | 渠道 `<scope>.updates`、通知、`ForegroundInfo(dataSync)` |
-| `WorkerHttp.kt` | internal object | 进程级 `OkHttpClient` 槽位（worker 无法注入） |
+| `WorkerHttp.kt` | internal object | 进程级 `OkHttpClient` 槽位（worker 无法注入）+ 代理端点持久化（冷启动恢复） |
 | `UpdaterPaths.kt` | internal | `updaterCacheDir()` — **唯一的缓存目录真源** |
 | `UpdaterException.kt` | public | `UpdaterException` / `ReleaseApiException` / `DownloadException` |
 
-`updater/src/test/kotlin/dev/cuculus/update/`：6 个测试类、43 例，见 [`docs/11-testing-and-build.md`](docs/11-testing-and-build.md)。
+`updater/src/test/kotlin/dev/cuculus/update/`：7 个测试类、49 例，见 [`docs/11-testing-and-build.md`](docs/11-testing-and-build.md)。
 
 ## 3. 构建 / 测试命令
 
@@ -76,7 +76,7 @@ export JAVA_HOME=/path/to/jdk-17   # 替换为你本机 JDK 17 的实际路径
 sh gradlew :updater:testDebugUnitTest :updater:assembleRelease :sample:assembleDebug --console=plain
 
 # 单独命令
-sh gradlew :updater:testDebugUnitTest --console=plain          # 29 例 JVM 单测
+sh gradlew :updater:testDebugUnitTest --console=plain          # 49 例 JVM 单测
 sh gradlew :updater:assembleRelease --console=plain            # AAR：updater/build/outputs/aar/updater-release.aar
 sh gradlew :sample:assembleDebug --console=plain               # sample APK
 sh gradlew :updater:publishToMavenLocal --console=plain        # 发到 ~/.m2：dev.cuculus:cuculus-update:<updaterSdkVersion>
@@ -99,13 +99,14 @@ sh gradlew clean --console=plain
 8. **不做静默安装、不内置 UI、不发布 Maven Central**（见 [`docs/10-design-rationale.md`](docs/10-design-rationale.md)）。
 9. **`Updater.create()` 只能在已 attach 的 Context 上调用**。`Updater` 构造立即读 `context.applicationContext` 并 `getSharedPreferences`；`UpdaterConfig` 惯例用 `"$packageName.updater"` 拼 authority。而 `Activity` 在 `attachBaseContext()` 之前 `mBase` 为 null，把 `private val updater = Updater.create(this, ...)` 写在**属性初始化器**里会直接 NPE、App 启动即崩。必须放 `Application.onCreate()`（推荐：进程级单例，也让冷启动恢复的 worker 拿到 `WorkerHttp.client`），最晚也要在 `Activity.onCreate()` 里传 `applicationContext`。sample 用 `SampleApp : Application()` + manifest `android:name=".SampleApp"` 演示正确写法，改动此处必须同步更新 README Quick start 与 09 篇禁止事项。
 10. **公共制品库匿名只读，建库 token 绝不进 App**。`UpdateSourceMode.ARTIFACT_REPO` 下 App 全程匿名读 public 仓库，不得在 App 代码路径注入任何 token；`ArtifactRepoProvisioner.ensureRepository()` 是**发布侧 CI 工具**（token 来自 CI secrets），禁止在 App 运行时调用。tag 前缀匹配是 `<namespace>/` 严格前缀。双源共存时给不同源配不同 `scope`，避免一个源缓存的 APK 被另一个源命中。详见 `docs/12-artifact-repo.md`。
+11. **下载优化与代理恢复的边界**。分段只做吞吐优化：`segmentCount = 1` 可显式关闭，`.part` 续传必须保留分段路径（禁止退回 `startBytes == 0` 的旧判据）；分段的 `Content-Range` 总长度必须与计划一致，否则回落完整流。代理持久化**只存端点 host/port**（`HTTP|host|port`），凭据 / DNS / SSL hook 一律不落盘，冷启动后须由接入方重新 `Updater.create()` 覆盖。详见 `docs/13-download-performance.md`。
 
 ## 5. 提交规范
 
 - 使用 **Conventional Commits**：`feat: ...` / `fix: ...` / `docs: ...` / `test: ...` / `refactor: ...` / `chore: ...`，可带作用域如 `docs(09): ...`。
 - **每个小任务单独一个 commit**，不要把不相关的改动塞进同一个提交；提交信息正文写清「为什么」。
 - 只提交本任务的产物：不要顺手改 `README.md`、`build.gradle.kts`、`settings.gradle.kts`、`gradle.properties`、`.gitignore`、任何 `.kt` 源码，除非该任务明确要求。
-- 提交前跑一遍 §3 的单测与 assemble 命令，确认 29 例全绿。
+- 提交前跑一遍 §3 的单测与 assemble 命令，确认 49 例全绿。
 - **本仓库当前由仓库所有者统一执行 `git add` / `git commit` / `git push`；执行具体写文档 / 改代码任务时不要自行提交。**
 - 禁止强推、禁止 `--no-verify`、禁止改写已发布历史。
 
