@@ -72,6 +72,65 @@ class GitHubReleaseApiTest {
         }
     }
 
+    @Test
+    fun `matching release picks the newest published release with the namespace tag`() = runTest {
+        MockWebServer().use { server ->
+            server.start()
+            server.enqueue(MockResponse.Builder().body(RELEASES_LIST_JSON).build())
+            val api = ReleaseApi(OkHttpClient(), server.url("/").toString().removeSuffix("/"))
+
+            val release = api.latestReleaseMatching("lwtor", "cuculus-artifacts", "video-archive")
+
+            assertEquals("video-archive/v1.9.0", release?.tagName)
+            assertEquals("video-archive-v1.9.0-1009000.apk", release?.assets?.first()?.name)
+        }
+    }
+
+    @Test
+    fun `matching release ignores drafts prereleases and other namespaces`() = runTest {
+        MockWebServer().use { server ->
+            server.start()
+            // A page whose only matching release is a draft/prerelease, plus other namespaces.
+            val json = """[
+                {"tag_name":"video-archive/v2.0.0-beta","draft":false,"prerelease":true,"assets":[]},
+                {"tag_name":"other-app/v9.9.9","draft":false,"prerelease":false,"assets":[]},
+                {"tag_name":"video-archive/v1.8.0","draft":true,"prerelease":false,"assets":[]}
+            ]"""
+            server.enqueue(MockResponse.Builder().body(json).build())
+            val api = ReleaseApi(OkHttpClient(), server.url("/").toString().removeSuffix("/"))
+
+            assertEquals(null, api.latestReleaseMatching("lwtor", "cuculus-artifacts", "video-archive"))
+        }
+    }
+
+    @Test
+    fun `matching release pages when the first page is full`() = runTest {
+        MockWebServer().use { server ->
+            server.start()
+            // GitHub orders newest-first; page 1 is full of unrelated tags, page 2 holds ours.
+            val unrelated = (1..100).joinToString(",") { """{"tag_name":"noise/$it","assets":[]}""" }
+            server.enqueue(MockResponse.Builder().body("[$unrelated]").build())
+            server.enqueue(MockResponse.Builder().body("""[{"tag_name":"video-archive/v1.7.0","assets":[{"name":"a-1.apk","browser_download_url":"https://example.com/a-1.apk","size":1}]}]""").build())
+            val api = ReleaseApi(OkHttpClient(), server.url("/").toString().removeSuffix("/"))
+
+            val release = api.latestReleaseMatching("lwtor", "cuculus-artifacts", "video-archive")
+
+            assertEquals("video-archive/v1.7.0", release?.tagName)
+            assertEquals(2, server.requestCount)
+        }
+    }
+
+    @Test
+    fun `matching release returns null for an empty repository`() = runTest {
+        MockWebServer().use { server ->
+            server.start()
+            server.enqueue(MockResponse.Builder().body("[]").build())
+            val api = ReleaseApi(OkHttpClient(), server.url("/").toString().removeSuffix("/"))
+
+            assertEquals(null, api.latestReleaseMatching("lwtor", "cuculus-artifacts", "video-archive"))
+        }
+    }
+
     private companion object {
         val LATEST_RELEASE_JSON = """
             {
@@ -97,5 +156,34 @@ class GitHubReleaseApiTest {
               ]
             }
         """.trimIndent()
+
+        val RELEASES_LIST_JSON = """[
+            {
+              "tag_name": "video-archive/v1.9.0",
+              "name": "Video Archive 1.9.0",
+              "draft": false,
+              "prerelease": false,
+              "assets": [
+                {
+                  "name": "video-archive-v1.9.0-1009000.apk",
+                  "browser_download_url": "https://example.com/video-archive-v1.9.0-1009000.apk",
+                  "size": 23310336,
+                  "content_type": "application/vnd.android.package-archive"
+                }
+              ]
+            },
+            {
+              "tag_name": "video-archive/v1.8.0",
+              "draft": false,
+              "prerelease": false,
+              "assets": []
+            },
+            {
+              "tag_name": "other-app/v9.9.9",
+              "draft": false,
+              "prerelease": false,
+              "assets": []
+            }
+        ]""".trimIndent()
     }
 }
