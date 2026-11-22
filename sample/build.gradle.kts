@@ -10,8 +10,8 @@ android {
         applicationId = "dev.cuculus.update.sample"
         minSdk = 26
         targetSdk = 37
-        versionCode = 17
-        versionName = "1.3.5"
+        versionCode = 18
+        versionName = "1.3.6"
     }
 
     compileOptions {
