@@ -36,7 +36,7 @@ class UpdateDownloadWorker(
         val totalBytes = inputData.getLong(INPUT_TOTAL_BYTES, 0L).takeIf { it > 0 }
 
         val notifier = UpdateNotifier(applicationContext, scope, stringsFromInput())
-        val downloader = ApkDownloader(WorkerHttp.resolve())
+        val downloader = ApkDownloader(WorkerHttp.resolve(applicationContext))
         val target = File(
             updaterCacheDir(applicationContext, scope),
             ReleaseSelection.sanitizeAssetFileName(targetName),

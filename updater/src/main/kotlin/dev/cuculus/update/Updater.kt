@@ -226,7 +226,10 @@ class Updater private constructor(
             httpClient: OkHttpClient? = null,
         ): Updater {
             val client = httpClient ?: OkHttpClient()
-            WorkerHttp.client = client
+            // Publish the client for the foreground worker and persist its proxy endpoint so a
+            // worker restored after a process restart does not silently fall back to a direct
+            // connection (which can be dramatically slower on a proxy-only network).
+            WorkerHttp.install(context, client)
             return Updater(context, config, client)
         }
     }

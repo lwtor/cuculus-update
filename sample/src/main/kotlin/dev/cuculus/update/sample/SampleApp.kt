@@ -5,6 +5,7 @@ import dev.cuculus.update.ArtifactRepoRef
 import dev.cuculus.update.UpdateSourceMode
 import dev.cuculus.update.Updater
 import dev.cuculus.update.UpdaterConfig
+import okhttp3.OkHttpClient
 
 /**
  * Builds the [Updater] once per process, from an Application context that is already attached.
@@ -42,6 +43,14 @@ class SampleApp : Application() {
     lateinit var updater: Updater
         private set
 
+    /**
+     * The demo passes its own client to [Updater.create]. That is what makes the proxy survive a
+     * process restart: the SDK persists the client's proxy endpoint for the restored worker. A
+     * production app should pass the same client it uses everywhere else (configured with its
+     * proxy/DNS), instead of letting the SDK build a plain one.
+     */
+    private val httpClient: OkHttpClient = OkHttpClient.Builder().build()
+
     override fun onCreate() {
         super.onCreate()
         rebuildUpdater(sourceState)
@@ -54,7 +63,7 @@ class SampleApp : Application() {
      */
     fun rebuildUpdater(state: SourceState): Updater {
         sourceState = state
-        updater = Updater.create(applicationContext, buildUpdaterConfig(state))
+        updater = Updater.create(applicationContext, buildUpdaterConfig(state), httpClient)
         return updater
     }
 
