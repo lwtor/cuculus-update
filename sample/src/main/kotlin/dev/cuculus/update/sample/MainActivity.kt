@@ -62,6 +62,9 @@ class MainActivity : Activity() {
     /** The in-flight transfer, so the download button can cancel it instead of locking the UI. */
     private var downloadJob: Job? = null
 
+    /** Suppresses the radio listener while [renderSourceState] programmatically sets the mode. */
+    private var applyingSourceState = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -85,6 +88,19 @@ class MainActivity : Activity() {
             BuildConfig.VERSION_NAME,
             BuildConfig.VERSION_CODE,
         )
+
+        // Switching the mode resets the form to sane defaults for that mode, so the tester does
+        // not accidentally read the current repo while in artifact mode (or vice versa).
+        sourceModeGroup.setOnCheckedChangeListener { _, checkedId ->
+            if (applyingSourceState) return@setOnCheckedChangeListener
+            onModeSwitched(
+                if (checkedId == R.id.source_mode_artifact) {
+                    UpdateSourceMode.ARTIFACT_REPO
+                } else {
+                    UpdateSourceMode.CURRENT_REPO
+                },
+            )
+        }
 
         // Reflect the source SampleApp actually built (survives rotation / cold start).
         renderSourceState((application as SampleApp).sourceState)
@@ -354,8 +370,34 @@ class MainActivity : Activity() {
         """.trimIndent()
     }
 
+    /**
+     * The user flipped the mode radio. Give each mode its own defaults so the form never silently
+     * points at the wrong repository:
+     *  - CURRENT_REPO → this app's own repo (lwtor/cuculus-update).
+     *  - ARTIFACT_REPO → blank fields, which the SDK resolves to the built-in public artifact repo
+     *    (lwtor/cuculus-artifacts) with `cuculus-update` as the tag namespace — exactly the repo we
+     *    publish for demo testing. The tester can still type overrides.
+     */
+    private fun onModeSwitched(mode: UpdateSourceMode) {
+        when (mode) {
+            UpdateSourceMode.CURRENT_REPO -> {
+                ownerInput.setText("lwtor")
+                repoInput.setText("cuculus-update")
+                namespaceInput.setText("")
+            }
+
+            UpdateSourceMode.ARTIFACT_REPO -> {
+                ownerInput.setText("")
+                repoInput.setText("")
+                namespaceInput.setText("")
+            }
+        }
+        updateSourceSummary(SampleApp.SourceState(mode = mode))
+    }
+
     /** Prefills the config form and the human-readable summary from a source state. */
     private fun renderSourceState(state: SampleApp.SourceState) {
+        applyingSourceState = true
         sourceModeGroup.check(
             if (state.mode == UpdateSourceMode.ARTIFACT_REPO) {
                 R.id.source_mode_artifact
@@ -363,6 +405,7 @@ class MainActivity : Activity() {
                 R.id.source_mode_current
             },
         )
+        applyingSourceState = false
         ownerInput.setText(state.owner)
         repoInput.setText(state.repository)
         namespaceInput.setText(state.namespace)
@@ -378,9 +421,13 @@ class MainActivity : Activity() {
             )
 
             UpdateSourceMode.ARTIFACT_REPO -> {
+                // Mirror SampleApp.buildUpdaterConfig's fallbacks: blank owner/repo → built-in
+                // lwtor/cuculus-artifacts; blank namespace → repository → "cuculus-update".
                 val owner = state.owner.ifBlank { "lwtor" }
-                val repo = state.repository.ifBlank { "（内置默认公共库）" }
-                val namespace = state.namespace.ifBlank { state.repository.ifBlank { "repository" } }
+                val repo = state.repository.ifBlank { "cuculus-artifacts" }
+                val namespace = state.namespace.ifBlank {
+                    state.repository.ifBlank { "cuculus-update" }
+                }
                 getString(R.string.source_summary_artifact, owner, repo, namespace)
             }
         }
