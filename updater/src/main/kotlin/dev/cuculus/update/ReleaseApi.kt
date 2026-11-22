@@ -7,6 +7,7 @@ import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -52,6 +53,52 @@ internal class ReleaseApi(
         }
     }
 
+    /**
+     * Returns the newest published (non-draft, non-prerelease) release whose `tag_name` starts with
+     * [namespace] followed by `/` — e.g. `"video-archive"` matches `video-archive/v1.2.3`.
+     *
+     * Used for a shared artifact repository that aggregates several apps' APKs. GitHub's
+     * `/releases/latest` endpoint always returns the single newest release regardless of tag, so
+     * a shared repository must instead page through `/releases` (already ordered newest-first by
+     * GitHub) and pick the first matching tag.
+     *
+     * Returns null when no release carries the prefix, or the repository has none published.
+     */
+    suspend fun latestReleaseMatching(
+        owner: String,
+        repository: String,
+        namespace: String,
+    ): ReleaseInfo? {
+        val prefix = "$namespace/"
+        var page = 1
+        while (true) {
+            val request = Request.Builder()
+                .url("$apiBaseUrl/repos/${segment(owner)}/${segment(repository)}/releases?per_page=$RELEASES_PER_PAGE&page=$page")
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                .header("User-Agent", USER_AGENT)
+                .get()
+                .build()
+            val response = awaitResponse(httpClient, request)
+            val releases = response.use {
+                val body = it.body?.string().orEmpty()
+                if (!it.isSuccessful) throw releaseError(it.code, body)
+                JSONArray(body)
+            }
+            if (releases.length() == 0) return null
+            for (index in 0 until releases.length()) {
+                val json = releases.optJSONObject(index) ?: continue
+                if (json.optBoolean("draft") || json.optBoolean("prerelease")) continue
+                val tag = json.optString("tag_name")
+                if (!tag.startsWith(prefix)) continue
+                return parseRelease(json)
+            }
+            // A short page is the last page; a full page means there may be more.
+            if (releases.length() < RELEASES_PER_PAGE) return null
+            page++
+        }
+    }
+
     private fun releaseError(statusCode: Int, body: String): ReleaseApiException {
         val message = runCatching { JSONObject(body).optString("message") }.getOrNull()
             ?.takeIf(String::isNotBlank)
@@ -66,6 +113,7 @@ internal class ReleaseApi(
         private const val DEFAULT_API_BASE_URL = "https://api.github.com"
         private const val GITHUB_API_VERSION = "2026-03-10"
         private const val USER_AGENT = "cuculus-update"
+        private const val RELEASES_PER_PAGE = 100
     }
 }
 

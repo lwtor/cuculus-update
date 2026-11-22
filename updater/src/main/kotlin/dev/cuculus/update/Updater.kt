@@ -27,7 +27,7 @@ class Updater private constructor(
     httpClient: OkHttpClient,
 ) : UpdateGateway {
     private val appContext = context.applicationContext
-    private val api = ReleaseApi(httpClient)
+    private val api = ReleaseApi(httpClient, config.apiBaseUrl)
     private val downloader = ApkDownloader(httpClient)
     private val installer = ApkInstaller(config.fileProviderAuthority)
     private val stateStore = UpdateStateStore(appContext, config.scope)
@@ -45,11 +45,40 @@ class Updater private constructor(
     private val downloadDirectory: File
         get() = updaterCacheDir(appContext, config.scope)
 
+    /**
+     * Fetches the latest release from the configured source. In [UpdateSourceMode.ARTIFACT_REPO]
+     * the newest published release matching [UpdaterConfig.effectiveNamespace] is used; a null
+     * result (no tagged release yet) surfaces as [ReleaseApiException] so callers see a clean
+     * "no release" failure rather than silently treating the app as up to date.
+     */
+    private suspend fun fetchLatestRelease(): ReleaseInfo {
+        val repo = config.effectiveRepo
+        return when (config.sourceMode) {
+            UpdateSourceMode.CURRENT_REPO -> api.latestRelease(repo.owner, repo.repository)
+            UpdateSourceMode.ARTIFACT_REPO -> api.latestReleaseMatching(
+                repo.owner,
+                repo.repository,
+                config.effectiveNamespace,
+            ) ?: throw ReleaseApiException(404, "no tagged release for namespace '${config.effectiveNamespace}'")
+        }
+    }
+
+    /**
+     * The tag passed to the version resolver, with the artifact namespace prefix removed when
+     * reading a shared repository. Asset-name-based resolvers are unaffected; tag-based resolvers
+     * such as [ReleaseVersionResolver.TagScheme] therefore still see a clean `v1.2.3` tag.
+     */
+    private fun tagForResolver(release: ReleaseInfo): String {
+        if (config.sourceMode != UpdateSourceMode.ARTIFACT_REPO) return release.tagName
+        val prefix = config.effectiveNamespace + "/"
+        return release.tagName.removePrefix(prefix)
+    }
+
     override suspend fun check(installedVersionCode: Long): UpdateCheck {
-        val release = api.latestRelease(config.owner, config.repository)
+        val release = fetchLatestRelease()
         val asset = ReleaseSelection.pickUpdateApk(release.assets)
             ?: return UpdateCheck.NoInstallableAsset
-        val versionCode = config.versionResolver.versionCodeOf(release.tagName, asset.name)
+        val versionCode = config.versionResolver.versionCodeOf(tagForResolver(release), asset.name)
             ?: return UpdateCheck.NoInstallableAsset
         return if (ReleaseSelection.isUpdate(versionCode, installedVersionCode)) {
             UpdateCheck.Available(release, asset, versionCode)
@@ -75,7 +104,7 @@ class Updater private constructor(
      * @return null when the release exists but carries no `.apk` asset.
      */
     suspend fun latestInstallableAsset(): ReleaseAsset? {
-        val release = api.latestRelease(config.owner, config.repository)
+        val release = fetchLatestRelease()
         return ReleaseSelection.pickUpdateApk(release.assets)
     }
 

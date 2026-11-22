@@ -1,5 +1,28 @@
 package dev.cuculus.update
 
+/** Where an [Updater] reads its releases from. */
+enum class UpdateSourceMode {
+    /** Read the latest release from the app's own `owner`/`repository`. The default, fully backwards compatible. */
+    CURRENT_REPO,
+
+    /** Read a tagged release from a shared (public) artifact repository that aggregates many apps' APKs. */
+    ARTIFACT_REPO,
+}
+
+/** Coordinates of an artifact repository that aggregates APKs from several apps. */
+data class ArtifactRepoRef(val owner: String, val repository: String)
+
+/** Built-in public artifact repository used when [UpdaterConfig.artifactRepo] is null. */
+object ArtifactRepoDefaults {
+    const val OWNER = "lwtor"
+    const val REPOSITORY = "cuculus-artifacts"
+}
+
+/** Defaults for the GitHub API transport shared by config and the release client. */
+object UpdaterConfigDefaults {
+    const val API_BASE_URL = "https://api.github.com"
+}
+
 /**
  * Everything an app must decide. One instance describes one update source.
  *
@@ -12,6 +35,13 @@ package dev.cuculus.update
  *   independent update sources without them colliding.
  * @property versionResolver maps a release to the Android versionCode it competes with.
  * @property strings user-visible text; the SDK ships Chinese defaults, override them per app.
+ * @property sourceMode whether to read the app's own repository or a shared artifact repository.
+ *   Defaults to [UpdateSourceMode.CURRENT_REPO] so existing integrations are unaffected.
+ * @property artifactRepo the shared artifact repository to read in [UpdateSourceMode.ARTIFACT_REPO].
+ *   When null, [ArtifactRepoDefaults] is used.
+ * @property artifactNamespace the tag prefix that identifies this app inside a shared artifact
+ *   repository, e.g. `"video-archive"` matches tags `video-archive/v1.2.3`. When null in
+ *   [UpdateSourceMode.ARTIFACT_REPO], [repository] is used as the prefix.
  */
 data class UpdaterConfig(
     val owner: String,
@@ -21,7 +51,24 @@ data class UpdaterConfig(
     val scope: String = "self_update",
     val versionResolver: ReleaseVersionResolver = ReleaseVersionResolver.AssetNameSuffix(),
     val strings: UpdaterStrings = UpdaterStrings(),
-)
+    val sourceMode: UpdateSourceMode = UpdateSourceMode.CURRENT_REPO,
+    val artifactRepo: ArtifactRepoRef? = null,
+    val artifactNamespace: String? = null,
+    /** GitHub API base URL. Defaults to public GitHub; override for GitHub Enterprise. */
+    val apiBaseUrl: String = UpdaterConfigDefaults.API_BASE_URL,
+) {
+    /** The repository actually read, resolved from [sourceMode]. */
+    internal val effectiveRepo: ArtifactRepoRef
+        get() = when (sourceMode) {
+            UpdateSourceMode.CURRENT_REPO -> ArtifactRepoRef(owner, repository)
+            UpdateSourceMode.ARTIFACT_REPO -> artifactRepo
+                ?: ArtifactRepoRef(ArtifactRepoDefaults.OWNER, ArtifactRepoDefaults.REPOSITORY)
+        }
+
+    /** The tag prefix actually matched in a shared artifact repository. */
+    internal val effectiveNamespace: String
+        get() = artifactNamespace?.takeIf { it.isNotBlank() } ?: repository
+}
 
 /** User-visible strings; the SDK ships Chinese defaults, override them per app. */
 data class UpdaterStrings(
